@@ -1,0 +1,52 @@
+#!/bin/bash
+
+#
+# Tested on Linux only
+#
+
+
+mydir=`readlink -m "$0"`
+projectdir="$(dirname "$(dirname "$mydir")")"
+
+# Add antktjl and hepmc3jl module directories to Julia load path
+export JULIA_LOAD_PATH="@:@v#.#:@stdlib:$projectdir/antiktjl:$projectdir/hepmc3jl"
+
+die(){
+    echo "$@" 1>&2
+    exit 1
+}
+
+# Ensure the directory contains a events.hepmc3 file
+if ! [ -f events.hepmc3 ]; then
+    if [ -f ../data/events.hepmc3.gz ]; then
+	gunzip -c ../data/events.hepmc3.gz > events.hepmc3
+	echo "File events.hepmc3 generated from ../data/events.hepmc3.gz."
+    else
+	make -C "$projectdir/genevts" && ../genevts/genevts
+	echo "File events.hepmc3 generated."
+    fi
+fi
+
+[ $? != 0 ] && die "File events.hepmc3 missing and failed to generate it."
+
+[ $# -gt 0 ] && ntests="$1" || ntests=100
+
+cat <<EOF
+======================================================================
+| C++                                                                |
+======================================================================
+
+EOF
+echo "Run $ntests times the C++ version of the code."
+./run_antikt_cxx events.hepmc3 -1 "$ntests"
+
+cat <<EOF
+
+======================================================================
+| Julia                                                               |
+======================================================================
+
+EOF
+
+echo "Run $ntests times the Julia version of the code."
+./run_antikt_jl -m "$ntests" events.hepmc3 

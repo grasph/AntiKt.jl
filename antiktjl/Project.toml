@@ -1,0 +1,4 @@
+name = "AntiKt"
+uuid = "b1d79ec0-5126-4cc0-8710-7ce7530fd203"
+authors = ["Philippe Gras <philippe.gras@cern.ch>"]
+version = "0.1.0"

@@ -1,0 +1,117 @@
+#!/usr/bin/env julia
+# an example program showing how to use fastjet
+
+import HepMC3
+using AntiKt
+using Printf
+using ArgParse
+import Profile
+using StatProfilerHTML
+const R = 0.4
+const ptmin = 5.0
+
+
+read_events(fname, maxevents=-1, skipevents = 0) = begin
+    f = open(fname)
+    
+    events = Vector{PseudoJet}[]
+    
+    HepMC3.read_events(f, maxevents=maxevents, skipevents=skipevents) do parts
+        input_particles = PseudoJet[]
+        for p in parts
+            if p.status == 1
+                push!(input_particles, PseudoJet(p.momentum.px, p.momentum.py, p.momentum.pz, p.momentum.e))
+            end
+        end
+        push!(events, input_particles)
+    end
+
+    events
+end
+
+in_mem_process(events, niters=1, gcoff=false; profile=false) = begin
+    length(events) == 0 && return nothing
+    
+    #warm-up
+    jets = antikt(events[1], R, ptmin)
+    
+    njets_acc = 0
+    acc = 0.
+    acc2 = 0.
+    for i in 1:niters
+        print("\u0d", i, " / ", niters)
+        GC.gc()
+        gcoff && GC.enable(false)
+        t0 = time_ns()
+        for evt in events
+            jets = antikt(evt, R, ptmin)
+            njets_acc += length(jets)
+        end
+        t1 = time_ns()
+        gcoff && GC.enable(true)
+        dt_μs = convert(Float64, t1-t0) * 1.e-3
+        acc += dt_μs
+        acc2 += dt_μs^2
+    end
+    println()
+    mean = acc / niters
+    acc2 /= niters
+    sigma = sqrt(niters/(niters-1) * (acc2 - mean^2))
+    mean /= length(events)
+    sigma /= length(events)
+    err = niters > 1 ? err = " ± " * string(sigma) : ""
+    println("Duration: ", mean, err, " us/event")
+    println("Numer of processed events:", length(events))
+    println("Sum of jet multiplicity over the processed events: ", njets_acc)
+
+    if profile
+        Profile.init(n = 10^7, delay = 0.00001)
+        @profilehtml begin
+            for i in 1:niters
+               for evt in events
+                   antikt(evt, R, ptmin)
+               end
+            end
+        end
+    end
+    nothing
+end
+
+parse_command_line(args) = begin
+    s = ArgParseSettings()
+    @add_arg_table s begin
+        "--maxevents", "-n"
+        help = "Maximum number of events to read. -1 to read all events from the  file."
+        arg_type = Int
+        default = -1
+        "--skip", "-s"
+        help = "Number of events to skip at beginning of the file."
+        arg_type = Int
+        default = 0
+        "--nsamples", "-m"
+        help = "Number of measurement points to acquire."
+        arg_type = Int
+        default = 1
+        "--gcoff" 
+        help = "Turn off Julia garbage collector during each time measurement."
+        action = :store_true
+	"--profile"
+	help = "Profile code and generate a flame graph."
+	action = :store_true
+        "file"
+        help = "HepMC3 event file in HepMC3 to read."
+        required = true
+    end
+    return parse_args(args, s; as_symbols = true)
+end
+
+main() = begin
+    args = parse_command_line(ARGS)
+    events::Vector{Vector{PseudoJet}} = read_events(args[:file], args[:maxevents], args[:skip])
+    in_mem_process(events, args[:nsamples], args[:gcoff]; profile=args[:profile])
+    nothing
+end
+
+if abspath(PROGRAM_FILE) == @__FILE__
+    main()
+end

@@ -1,0 +1,6 @@
+## Directory content
+
+Julia code defining two modules:
+
+   * HepMC3, a module to read HEP event files in ASCII [HepMC3](https://doi.org/10.1016/j.cpc.2020.107310) format
+   * AntiKt, a module to perform anti-$k_{\textrm{T}}$ clustering using the Tiling N<sup>2</sup> [Fastjet](https://www.fastjet.fr) algoritm.

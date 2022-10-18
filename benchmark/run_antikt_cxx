@@ -1,0 +1,5 @@
+#!/bin/bash
+myself="`readlink -m "$0"`"
+mydir="`dirname "$myself"`"
+projectdir="`dirname "$mydir"`"
+make -C "$projectdir/antiktcxx" antikt && "$projectdir/antiktcxx/antikt" "$@" || { echo "Failed to build the code. Cannot run the test." 1>&2; exit 1; }

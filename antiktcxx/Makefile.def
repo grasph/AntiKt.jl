@@ -1,0 +1,2 @@
+HEPMC3_DIR=$(dir $(CURDIR))/externals
+FASTJET_DIR=$(dir $(CURDIR))/externals

@@ -1,0 +1,12 @@
+# Directory containing this file
+PROJECT_DIR:=$(abspath $(dir $(lastword $(MAKEFILE_LIST))))
+
+# Set below the path to the HepMC3 (https://gitlab.cern.ch/hepmc/HepMC3) installation
+HEPMC3_DIR=$(PROJECT_DIR)/externals
+
+# Set below the path to the Pythia8 (https://pythia.org) installation
+PYTHIA_DIR=$(PROJECT_DIR)/externals
+
+# Set below the path to the Fastjet (https://fastjet.fr) installation
+FASTJET_DIR=$(PROJECT_DIR)/externals
+
