@@ -42,20 +42,20 @@ mutable struct HistoryElement
     """Index in _history where first parent of this jet
     was created (InexistentParent if this jet is an
     original particle)"""
-    parent1
+    parent1::Int
 
     """index in _history where second parent of this jet
     was created (InexistentParent if this jet is an
     original particle); BeamJet if this history entry
     just labels the fact that the jet has recombined
     with the beam)"""
-    parent2
+    parent2::Int
 
     """index in _history where the current jet is
     recombined with another jet to form its child. It
     is Invalid if this jet does not further
     recombine."""
-    child
+    child::Int
 
     """index in the _jets vector where we will find the
     PseudoJet object corresponding to this jet
@@ -63,15 +63,15 @@ mutable struct HistoryElement
     history). NB: if this element of the history
     corresponds to a beam recombination, then
     jetp_index=Invalid."""
-    jetp_index
+    jetp_index::Int
 
     """the distance corresponding to the recombination
        at this stage of the clustering."""
-    dij
+    dij::Float64
 
     """the largest recombination distance seen
        so far in the clustering history."""
-    max_dij_so_far
+    max_dij_so_far::Float64
 end
 
 HistoryElement(jetp_index) = HistoryElement(InexistentParent, InexistentParent, Invalid, jetp_index, 0.0, 0.0)
@@ -173,12 +173,12 @@ struct ClusterSequence
     """This contains the physical PseudoJets; for each PseudoJet one
 can find the corresponding position in the _history by looking
 at _jets[i].cluster_hist_index()"""
-    jets::Array{PseudoJet}
+    jets::Vector{PseudoJet}
 
     """This vector will contain the branching history; for each stage,
 _history[i].jetp_index indicates where to look in the _jets
 vector to get the physical PseudoJet."""
-    history::Array{HistoryElement}
+    history::Vector{HistoryElement}
 
     """PseudoJet tiling"""
     tiling::Tiling{Float64,Int}
@@ -397,7 +397,7 @@ _initial_tiling(particles, Rparam) = begin
 
     # allocate the tiles
     ntiles = (tiles_ieta_max - tiles_ieta_min + 1) * n_tiles_phi
-    tiles = Array{Tile}(undef, ntiles)
+    tiles = Vector{Tile}(undef, ntiles)
     for i in eachindex(tiles)
         @inbounds tiles[i] = Tile()
     end
@@ -449,8 +449,8 @@ _tj_set_jetinfo!(jet::TiledJet, cs::ClusterSequence, jets_index, R2) = begin
 end
 
 
-Base.iterate(tj::TiledJet) = isnothing(tj) ? nothing : (tj, tj)
-Base.iterate(tj::TiledJet, state::Union{TiledJet, Nothing}) = begin
+Base.iterate(tj::TiledJet) = (tj, tj)
+Base.iterate(tj::TiledJet, state::TiledJet) = begin
     isnothing(state.next) ? nothing : (state.next, state.next)
 end
 
@@ -490,7 +490,7 @@ end
 _initial_history(particles) = begin
 
     # reserve sufficient space for everything
-    history = Array{HistoryElement}(undef, length(particles))
+    history = Vector{HistoryElement}(undef, length(particles))
     sizehint!(history, 2*length(particles)) #FIXME does it bring any significant performance improvement?
 
     Qtot = 0.
