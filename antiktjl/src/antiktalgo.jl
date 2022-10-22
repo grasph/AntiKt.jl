@@ -423,7 +423,7 @@ _initial_tiling(particles, Rparam) = begin
     ntiles = (tiles_ieta_max - tiles_ieta_min + 1) * n_tiles_phi
     tiles = Vector{Tile}(undef, ntiles)
     for i in eachindex(tiles)
-        @inbounds tiles[i] = Tile()
+        tiles[i] = Tile()
     end
 
     #now set up the cross-referencing between tiles
@@ -634,13 +634,10 @@ inclusive_jets(cs::ClusterSequence, ptmin = 0.) = begin
 end
 
 
-mutable struct _DiJ_plus_link
+struct _DiJ_plus_link
     diJ::Float64  # the distance
     jet::TiledJet # the jet (i) for which we've found this distance
 end
-
-#import Base.isless
-#isless(x::_DiJ_plus_link, y::_DiJ_plus_link) = x.diJ < y.diJ
 
 #----------------------------------------------------------------------
 #/ run a tiled clustering
@@ -725,12 +722,14 @@ _faster_tiled_N2_cluster(particles, Rparam, ptmin = 0.0) = begin
     # now create the diJ (where J is i's NN) table -- remember that
     # we differ from standard normalisation here by a factor of R2
     # (corrected for at the end).
-    diJ = similar(cs.jets, _DiJ_plus_link)
+    #diJ = similar(cs.jets, _DiJ_plus_link)
+    diJ = similar(cs.jets, Float64)
+    NNs = similar(cs.jets, TiledJet)
     for i in eachindex(diJ)
         jetA = tiledjets[i]
-        diJ[i] = _DiJ_plus_link(_tj_diJ(jetA), # kt distance * R^2
-                                jetA) # our compact diJ table will not be in
-        jetA.diJ_posn = i # one-to-one corresp. with non-compact jets,
+        diJ[i] = _tj_diJ(jetA) # kt distance * R^2
+        NNs[i] = jetA        # our compact diJ table will not be in
+        jetA.diJ_posn = i    # one-to-one corresp. with non-compact jets,
    	# so set up bi-directional correspondence here.
     end
 
@@ -741,17 +740,17 @@ _faster_tiled_N2_cluster(particles, Rparam, ptmin = 0.0) = begin
     while n > 1
         # find the minimum of the diJ on this round
         best = 1
-        diJ_min = diJ[1].diJ # initialise the best one here.
+        @inbounds diJ_min = diJ[1] # initialize the best one here.
         for here in 2:n
-            if diJ[here].diJ < diJ_min
+            @inbounds if diJ[here] < diJ_min
                 best = here
-                diJ_min  = diJ[here].diJ
+                diJ_min  = diJ[here]
             end
         end
-
+        
         # do the recombination between A and B
         history_location += 1
-        jetA = diJ[best].jet
+        jetA = NNs[best]
         jetB = jetA.NN
 
         # put the normalisation back in
@@ -806,8 +805,9 @@ _faster_tiled_N2_cluster(particles, Rparam, ptmin = 0.0) = begin
         
         # first compactify the diJ by taking the last of the diJ and copying
         # it to the position occupied by the diJ for jetA
-        diJ[n].jet.diJ_posn = jetA.diJ_posn
+        NNs[n].diJ_posn = jetA.diJ_posn
         diJ[jetA.diJ_posn] = diJ[n]
+        NNs[jetA.diJ_posn] = NNs[n]
 
         # then reduce size of table
         n -= 1
@@ -840,8 +840,8 @@ _faster_tiled_N2_cluster(particles, Rparam, ptmin = 0.0) = begin
                             end
                         end # next jetJ
                     end # next near_tile
-                    diJ[jetI.diJ_posn].diJ = _tj_diJ(jetI) # update diJ kt-dist
-                end #jetI.NN == jetA || (jetI.NN == jetB && isvalid(jetB))
+                    diJ[jetI.diJ_posn]  = _tj_diJ(jetI) # update diJ kt-dist
+                end #jetI.NN == jetA || (jetI.NN == jetB && !isnothing(jetB))
                 
                 # check whether new jetB is closer than jetI's current NN and
                 # if jetI is closer than jetB's current (evolving) nearest
@@ -852,7 +852,9 @@ _faster_tiled_N2_cluster(particles, Rparam, ptmin = 0.0) = begin
     	                if jetI != jetB
     	                    jetI.NN_dist = dist
     	                    jetI.NN = jetB
-    	                    diJ[jetI.diJ_posn].diJ = _tj_diJ(jetI) # update diJ...
+    	                    #diJ[jetI.diJ_posn].diJ = _tj_diJ(jetI) # update diJ...
+                            #diJ[jetI.diJ_posn] = _DiJ_plus_link(_tj_diJ(jetI), jetI) # update diJ...
+                            diJ[jetI.diJ_posn] = _tj_diJ(jetI) # update diJ...
     	                end
                     end
                     if dist < jetB.NN_dist && jetI != jetB
@@ -865,7 +867,7 @@ _faster_tiled_N2_cluster(particles, Rparam, ptmin = 0.0) = begin
         
         # finally, register the updated kt distance for B
         if isvalid(jetB)
-            diJ[jetB.diJ_posn].diJ = _tj_diJ(jetB)
+            diJ[jetB.diJ_posn] = _tj_diJ(jetB)
         end
     end #next n
     inclusive_jets(cs, ptmin)
