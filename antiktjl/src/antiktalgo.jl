@@ -147,6 +147,8 @@ const _tile_right_neigbour_indices = 6:9
 const _n_tile_right_neighbours = 4
 const _n_tile_neighbours = 9
 
+const neigh_init = fill(nothing,_n_tile_neighbours)
+
 mutable struct Tile
     """"Linked list of TiledJets contained in this Tile"""
     head::TiledJet
@@ -163,20 +165,13 @@ mutable struct Tile
   |
   |
   +------> η"""
-    surrounding::Vector{Tile}
+    surrounding::Vector{Union{Tile, Nothing}}
 
     """Tag used in the clustering algorithm"""
     tagged::Bool
-
-    #Constructor to be used once to create the noTile singleton
-    Tile(::Type{Nothing}) = new(noTiledJet, Tile[], false)
-
+    Tile() = new(noTiledJet, fill(nothing, 9), false)
     Tile(head, surrounding, tagged = false) = new(head, surrounding, tagged)
 end
-
-const noTile::Tile  = Tile(Nothing)
-isvalid(t::Tile) = !(t === noTile)
-Tile() = Tile(noTiledJet, fill(noTile, _n_tile_neighbours))
 
 struct TilingDef{F,I}
     _tiles_eta_min::F
@@ -498,7 +493,7 @@ you go along. When a neighbour is added its tagged status is set to true.
 Returns the updated number of near_tiles."""
 _add_untagged_neighbours_to_tile_union(center_tile, tile_union, n_near_tiles) = begin
     for tile in center_tile.surrounding
-        isvalid(tile) || continue #on a boundary
+        isnothing(tile) && continue #on a boundary
         tile.tagged && continue #skipped tagged tiles
         n_near_tiles += 1
         tile_union[n_near_tiles] = tile
@@ -699,7 +694,7 @@ _faster_tiled_N2_cluster(particles, Rparam, ptmin = 0.0) = begin
 
         # look for neighbour jets n the neighbour tiles
         for rtile in tile.surrounding[_tile_right_neigbour_indices]
-            (isvalid(rtile) && isvalid(rtile.head))|| continue
+            (isnothing(rtile) || !isvalid(rtile.head)) && continue
 
             for jetA in tile.head
                 for jetB in rtile.head
@@ -830,7 +825,7 @@ _faster_tiled_N2_cluster(particles, Rparam, ptmin = 0.0) = begin
 
     	            # now go over tiles that are neighbours of I (include own tile)
     	            for near_tile in tile.surrounding
-                        (isvalid(near_tile) && isvalid(near_tile.head)) || continue
+                        (!isnothing(near_tile) && isvalid(near_tile.head)) || continue
     	                # and then over the contents of that tile
     	                for jetJ in near_tile.head
     	                    dist = _tj_dist(jetI, jetJ)
