@@ -92,18 +92,33 @@ mutable struct TiledJet
 
 
     "Nearest neighbour"
-    NN::Union{TiledJet, Nothing}
+    NN::TiledJet
+    
+    previous::TiledJet
+    next::TiledJet
 
-    previous::Union{TiledJet, Nothing}
-    next::Union{TiledJet, Nothing}
+    #Constructor to be used once to create the noTiledJet singleton
+    TiledJet(::Type{Nothing}) = begin
+        t = new(-1, 0., 0., 0., 0., 0,  0, 0)
+        t.NN = t.previous = t.next = t
+        t
+    end
+    
+    TiledJet(id, eta, phi, kt2, NN_dist,
+             jet_index, tile_index, diJ_posn,
+             NN, previous, next) = new(id, eta, phi, kt2, NN_dist,
+                                       jet_index, tile_index, diJ_posn,
+                                       NN, previous, next)
+end
 
-    TiledJet(id, eta=0., phi=0., kt2=0., NN_dist=0.,
-             jet_index=0, tile_index=0, diJ_posn=0,
-             NN = nothing, previous=nothing, next=nothing) = begin
-                 tj = new(id, eta, phi, kt2, NN_dist, jet_index, tile_index, diJ_posn)
-                 tj.NN, tj.previous, tj.next = NN, previous, next
-                 tj
-             end
+const noTiledJet::TiledJet = TiledJet(Nothing)
+isvalid(t::TiledJet) = !(t === noTiledJet)
+
+function TiledJet(id, eta=0., phi=0., kt2=0., NN_dist=0.,
+                  jet_index=0, tile_index=0, diJ_posn=0,
+                  NN=noTiledJet, previous=noTiledJet)
+    TiledJet(id, eta, phi, kt2, NN_dist, jet_index, tile_index,
+             diJ_posn, NN, previous, noTiledJet)
 end
 
 import Base.copy
@@ -119,7 +134,7 @@ end
 
 _tj_diJ(jet) = begin
     kt2 = jet.kt2
-    if !isnothing(jet.NN) && jet.NN.kt2 < kt2
+    if isvalid(jet.NN) && jet.NN.kt2 < kt2
         kt2 = jet.NN.kt2
     end
     return jet.NN_dist * kt2
@@ -134,25 +149,34 @@ const _n_tile_neighbours = 9
 
 mutable struct Tile
     """"Linked list of TiledJets contained in this Tile"""
-    head::Union{TiledJet, Nothing}
+    head::TiledJet
 
     """List of references to this tile and its 8 neighours. The
-  first element refers to this stucture, the next _n_title_left_neighbours
+  first element refers to this structure, the next _n_tile_left_neighbours
   elements refers to the left neighbours, and the next
-  _n_title_right_neighbours to the right neighbours.
+  _n_tile_right_neighbours to the right neighbours.
 
                         4|6|9       L|R|R
                         3|1|8       L|X|R
-  ^ ϕ                   2|5|7       L|L|R
+                        2|5|7       L|L|R
+  ^ ϕ
   |
   |
   +------> η"""
-    surrounding::Vector{Union{Tile, Nothing}}
+    surrounding::Vector{Tile}
 
     """Tag used in the clustering algorithm"""
     tagged::Bool
-    Tile() = new(nothing, fill(nothing, (_n_tile_neighbours,)), false)
+
+    #Constructor to be used once to create the noTile singleton
+    Tile(::Type{Nothing}) = new(noTiledJet, Tile[], false)
+
+    Tile(head, surrounding, tagged = false) = new(head, surrounding, tagged)
 end
+
+const noTile::Tile  = Tile(Nothing)
+isvalid(t::Tile) = !(t === noTile)
+Tile() = Tile(noTiledJet, fill(noTile, _n_tile_neighbours))
 
 struct TilingDef{F,I}
     _tiles_eta_min::F
@@ -336,7 +360,7 @@ _tj_remove_from_tiles!(tiling, jet) = begin
 
     tile = tiling._tiles[jet.tile_index]
 
-    if isnothing(jet.previous)
+    if !isvalid(jet.previous)
         # we are at head of the tile, so reset it.
         # If this was the only jet on the tile then tile->head will now be NULL
         tile.head = jet.next
@@ -345,7 +369,7 @@ _tj_remove_from_tiles!(tiling, jet) = begin
         jet.previous.next = jet.next
     end
 
-    if !isnothing(jet.next)
+    if isvalid(jet.next)
         # adjust backwards-link from next jet in this tile
         jet.next.previous = jet.previous
     end
@@ -384,7 +408,7 @@ _initial_tiling(particles, Rparam) = begin
     tile_size_phi = 2π / n_tiles_phi # >= Rparam and fits in 2pi
 
     tiles_eta_min, tiles_eta_max = determine_rapidity_extent(particles)
-
+    
     # now adjust the values
     tiles_ieta_min = floor(Int, tiles_eta_min/tile_size_eta)
     tiles_ieta_max = floor(Int, tiles_eta_max/tile_size_eta) #FIXME shouldn't it be ceil ?
@@ -435,23 +459,23 @@ _tj_set_jetinfo!(jet::TiledJet, cs::ClusterSequence, jets_index, R2) = begin
     jet.jets_index = jets_index
     # initialise NN info as well
     jet.NN_dist = R2
-    jet.NN      = nothing
+    jet.NN      = noTiledJet
 
     # Find out which tile it belonds to
     jet.tile_index = _tile_index(cs.tiling.setup, jet.eta, jet.phi)
 
     # Insert it into the tile's linked list of jets
     tile = cs.tiling._tiles[jet.tile_index]
-    jet.previous   = nothing
+    jet.previous   = noTiledJet
     jet.next       = tile.head
-    if !isnothing(jet.next) jet.next.previous = jet; end
+    if isvalid(jet.next) jet.next.previous = jet; end
     tile.head      = jet
 end
 
 
-Base.iterate(tj::TiledJet) = isnothing(tj) ? nothing : (tj, tj)
+Base.iterate(tj::TiledJet) = (tj, tj)
 Base.iterate(tj::TiledJet, state::TiledJet) = begin
-    isnothing(state.next) ? nothing : (state.next::TiledJet, state.next::TiledJet)
+    isvalid(state.next) ? (state.next::TiledJet, state.next::TiledJet) : nothing
 end
 
 # #----------------------------------------------------------------------
@@ -474,7 +498,7 @@ you go along. When a neighbour is added its tagged status is set to true.
 Returns the updated number of near_tiles."""
 _add_untagged_neighbours_to_tile_union(center_tile, tile_union, n_near_tiles) = begin
     for tile in center_tile.surrounding
-        isnothing(tile) && continue #on a boundary
+        isvalid(tile) || continue #on a boundary
         tile.tagged && continue #skipped tagged tiles
         n_near_tiles += 1
         tile_union[n_near_tiles] = tile
@@ -660,7 +684,7 @@ _faster_tiled_N2_cluster(particles, Rparam, ptmin = 0.0) = begin
     # set up the initial nearest neighbour information
     for tile in cs.tiling._tiles
         # first, do it for surrounding jets within the same tile
-        isnothing(tile.head) && continue
+        isvalid(tile.head) || continue
         for jetA in tile.head
             for jetB in tile.head
                 if jetB == jetA break; end
@@ -678,8 +702,7 @@ _faster_tiled_N2_cluster(particles, Rparam, ptmin = 0.0) = begin
 
         # look for neighbour jets n the neighbour tiles
         for rtile in tile.surrounding[_tile_right_neigbour_indices]
-            isnothing(rtile) && continue
-            isnothing(rtile.head) && continue
+            (isvalid(rtile) && isvalid(rtile.head))|| continue
 
             for jetA in tile.head
                 for jetB in rtile.head
@@ -734,7 +757,7 @@ _faster_tiled_N2_cluster(particles, Rparam, ptmin = 0.0) = begin
         # put the normalisation back in
         diJ_min *= invR2
 
-        if !isnothing(jetB)
+        if isvalid(jetB)
             # jet-jet recombination
             # If necessary relabel A & B to ensure jetB < jetA, that way if
             # the larger of them == newtail then that ends up being jetA and
@@ -768,7 +791,7 @@ _faster_tiled_N2_cluster(particles, Rparam, ptmin = 0.0) = begin
         n_near_tiles = 0
         n_near_tiles = _add_untagged_neighbours_to_tile_union(cs.tiling._tiles[jetA.tile_index],
    	                                                      tile_union, n_near_tiles)
-        if !isnothing(jetB)
+        if isvalid(jetB)
             if jetB.tile_index != jetA.tile_index
                 n_near_tiles = _add_untagged_neighbours_to_tile_union(cs.tiling._tiles[jetB.tile_index],
    		                                                      tile_union, n_near_tiles)
@@ -777,7 +800,7 @@ _faster_tiled_N2_cluster(particles, Rparam, ptmin = 0.0) = begin
                 n_near_tiles = _add_untagged_neighbours_to_tile_union(cs.tiling._tiles[oldB.tile_index],
    		                                                      tile_union, n_near_tiles)
             end
-        end #!isnothing(jetB)
+        end #isvalid(jetB)
 
         # now update our nearest neighbour info and diJ table
         
@@ -796,18 +819,18 @@ _faster_tiled_N2_cluster(particles, Rparam, ptmin = 0.0) = begin
             tile = tile_union[itile]
             tile.tagged = false # reset tag, since we're done with unions
 
-            isnothing(tile.head) && continue
+            isvalid(tile.head) || continue
             
             # run over all jets in the current tile
             for jetI in tile.head
     	        # see if jetI had jetA or jetB as a NN -- if so recalculate the NN
-    	        if jetI.NN == jetA || (jetI.NN == jetB && !isnothing(jetB))
+    	        if jetI.NN == jetA || (jetI.NN == jetB && isvalid(jetB))
     	            jetI.NN_dist = R2
-    	            jetI.NN      = nothing
+    	            jetI.NN      = noTiledJet
 
     	            # now go over tiles that are neighbours of I (include own tile)
     	            for near_tile in tile.surrounding
-                        (isnothing(near_tile) || isnothing(near_tile.head)) && continue
+                        (isvalid(near_tile) && isvalid(near_tile.head)) || continue
     	                # and then over the contents of that tile
     	                for jetJ in near_tile.head
     	                    dist = _tj_dist(jetI, jetJ)
@@ -818,12 +841,12 @@ _faster_tiled_N2_cluster(particles, Rparam, ptmin = 0.0) = begin
                         end # next jetJ
                     end # next near_tile
                     diJ[jetI.diJ_posn].diJ = _tj_diJ(jetI) # update diJ kt-dist
-                end #jetI.NN == jetA || (jetI.NN == jetB && !isnothing(jetB))
+                end #jetI.NN == jetA || (jetI.NN == jetB && isvalid(jetB))
                 
                 # check whether new jetB is closer than jetI's current NN and
                 # if jetI is closer than jetB's current (evolving) nearest
                 # neighbour. Where relevant update things.
-                if !isnothing(jetB)
+                if isvalid(jetB)
                     dist = _tj_dist(jetI,jetB)
                     if dist < jetI.NN_dist
     	                if jetI != jetB
@@ -836,12 +859,12 @@ _faster_tiled_N2_cluster(particles, Rparam, ptmin = 0.0) = begin
     	                jetB.NN_dist = dist
     	                jetB.NN      = jetI
                     end
-                end # !isnothing(jetB)
+                end # isvalid(jetB)
             end #next jetI
         end #next itile
         
         # finally, register the updated kt distance for B
-        if !isnothing(jetB)
+        if isvalid(jetB)
             diJ[jetB.diJ_posn].diJ = _tj_diJ(jetB)
         end
     end #next n
