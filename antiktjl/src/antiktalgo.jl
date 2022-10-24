@@ -38,6 +38,10 @@ import Base.convert
 
 mydebug(x...) = println(">>+> ", x...)
 
+"""for debugging to compare with indices used in the C++ implementation
+"""
+flatindex(c::CartesianIndex{2},a::Matrix) = (c[1]-1)*size(a)[2] + c[2]
+
 mutable struct HistoryElement
     """Index in _history where first parent of this jet
     was created (InexistentParent if this jet is an
@@ -87,19 +91,17 @@ mutable struct TiledJet
     NN_dist::Float64
 
     jets_index::Int
-    tile_index::Int
+    tile_index::CartesianIndex{2}
     diJ_posn::Int
 
 
     "Nearest neighbour"
     NN::TiledJet
-    
+
     previous::TiledJet
     next::TiledJet
-
-    #Constructor to be used once to create the noTiledJet singleton
     TiledJet(::Type{Nothing}) = begin
-        t = new(-1, 0., 0., 0., 0., 0,  0, 0)
+        t = new(-1, 0., 0., 0., 0., -1,  CartesianIndex(0, 0), 0)
         t.NN = t.previous = t.next = t
         t
     end
@@ -111,15 +113,42 @@ mutable struct TiledJet
                                        NN, previous, next)
 end
 
+
 const noTiledJet::TiledJet = TiledJet(Nothing)
+
 isvalid(t::TiledJet) = !(t === noTiledJet)
 
-function TiledJet(id, eta=0., phi=0., kt2=0., NN_dist=0.,
-                  jet_index=0, tile_index=0, diJ_posn=0,
-                  NN=noTiledJet, previous=noTiledJet)
-    TiledJet(id, eta, phi, kt2, NN_dist, jet_index, tile_index,
-             diJ_posn, NN, previous, noTiledJet)
+""" Move a TiledJet in front of a TiledJet list element.
+
+The jet to move can be an isolated jet, a jet from another list or a jet from the same list.
+
+"""
+insert!(nextjet::TiledJet, jettomove::TiledJet) = begin
+    if !isnothing(nextjet)
+        nextjet.previous  = jettomove
+    end
+    
+    jettomove.next = nextjet
+    jettomove.previous = nextjet.previous
+    nextjet = jettomove
 end
+
+""" Detach a TiledJet from its list.
+"""
+detach!(jet::TiledJet) = begin
+    if !isnothing(jet.previous)
+        jet.previous.next = jet.next
+    end
+    if !isnothing(jet.next)
+        jet.next.previous = jet.previous
+    end
+    jet.next = jet.previous = noTiledJet
+end
+
+
+TiledJet(id) = TiledJet(id, 0., 0., 0., 0.,
+                        0, CartesianIndex(0,0), 0,
+                        noTiledJet, noTiledJet, noTiledJet)
 
 import Base.copy
 copy(j::TiledJet) = TiledJet(j.id, j.eta, j.phi, j.kt2, j.NN_dist, j.jets_index, j.tile_index, j.diJ_posn, j.NN, j.previous, j.next)
@@ -149,35 +178,12 @@ const _n_tile_neighbours = 9
 
 const neigh_init = fill(nothing,_n_tile_neighbours)
 
-mutable struct Tile
-    """"Linked list of TiledJets contained in this Tile"""
-    head::TiledJet
-
-    """List of references to this tile and its 8 neighours. The
-  first element refers to this structure, the next _n_tile_left_neighbours
-  elements refers to the left neighbours, and the next
-  _n_tile_right_neighbours to the right neighbours.
-
-                        4|6|9       L|R|R
-                        3|1|8       L|X|R
-                        2|5|7       L|L|R
-  ^ ϕ
-  |
-  |
-  +------> η"""
-    surrounding::Vector{Union{Tile, Nothing}}
-
-    """Tag used in the clustering algorithm"""
-    tagged::Bool
-    Tile() = new(noTiledJet, fill(nothing, 9), false)
-    Tile(head, surrounding, tagged = false) = new(head, surrounding, tagged)
-end
-
 struct TilingDef{F,I}
     _tiles_eta_min::F
     _tiles_eta_max::F
     _tile_size_eta::F
     _tile_size_phi::F
+    _n_tiles_eta::I
     _n_tiles_phi::I
     _tiles_ieta_min::I
     _tiles_ieta_max::I
@@ -185,8 +191,94 @@ end
 
 struct Tiling{F,I}
     setup::TilingDef{F,I}
-    _tiles::Vector{Tile}
+    tiles::Matrix{TiledJet}
+    tags::Matrix{Bool}
 end
+
+surrounding_indices(center::CartesianIndex{2}, tiling::Tiling) = begin
+#                        4|6|9 
+#                        3|1|8 
+#                        2|5|7 
+#  -> η
+    ieta, iphi = Tuple(center)
+    ietamax, iphimax = tiling.setup._n_tiles_eta, tiling.setup._n_tiles_phi
+    ietam = ieta - 1
+    ietap = ieta + 1
+    iphim = mod1(iphi-1, iphimax)
+    iphip = mod1(iphi+1, iphimax)
+
+    indices = NTuple{2, Int}[]
+
+    CI = CartesianIndex{2}
+    
+    if ietamax == 1
+        indices = [CI(ieta, iphi), CI(ieta, phim), CI(ieta, iphip)]
+    elseif ieta == 1
+        indices = [CI(ieta,iphi), CI(ieta, iphim), CI(ieta, iphip),
+                   CI(ietap, iphim), CI(ietap, iphi), CI(ietap, iphip)]
+    elseif ieta == ietamax
+        indices = [CI(ieta,iphi),
+                   CI(ietam, iphim), CI(ietam, iphi), CI(ietam, iphip),
+                   CI(ieta, iphim), CI(ieta, iphip)]
+    else
+        indices = [CI(ieta,iphi),
+                   CI(ietam, iphim), CI(ietam, iphi), CI(ietam, iphip),
+                   CI(ieta, iphim), CI(ieta, iphip),
+                   CI(ietap, iphim), CI(ietap, iphi), CI(ietap, iphip)]
+    end
+    indices
+end
+
+surrounding(center::CartesianIndex{2}, tiling::Tiling) = map(x->tiling.tiles[x], surrounding_indices(center, tiling))
+
+rightneighbours(tile_index::CartesianIndex{2}, tiling::Tiling) = begin
+    #                         |1|4 
+    #                         | |3 
+    #                         | |2 
+    #  -> η   
+    ieta, iphi = Tuple(tile_index)
+    ietamax, iphimax = tiling.setup._n_tiles_eta, tiling.setup._n_tiles_phi
+    ietap = ieta + 1
+    iphim = mod1(iphi-1, iphimax)
+    iphip = mod1(iphi+1, iphimax)
+
+    indices = NTuple{2, Int}[]
+    if ietamax == 1
+        #no-op
+    elseif ieta == ietamax
+        indices = [(ieta,iphip)]
+    else
+        indices = [(ieta,iphip),
+                   (ietap, iphim), (ietap, iphi), (ietap, iphip)]
+    end
+    map(i->tiling.tiles[i...], indices)
+end
+
+leftneighbours(j::TiledJet, tiling::Tiling) = begin
+    #                        3| |  
+    #                        2| |  
+    #                        1|4|  
+    #  -> η   
+    ieta, iphi = Tuple(j.tile_index)
+    ietamax, iphimax = tiling.setup._n_tiles_eta, tiling.setup._n_tiles_phi
+    ietam = ieta - 1
+    ietap = ieta + 1
+    iphim = mod1(iphi-1, iphimax)
+    iphip = mod1(iphi+1, iphimax)
+
+    indices = NTuple{2, Int}[]
+    if ietamin == 1 || j == noTiledJet
+        #no-op
+    elseif ieta == ietamin
+        indices = [(ieta,iphim)]
+    else
+        indices = [(ietam, iphim), (ietam, iphi), (ietam, iphip),
+                   (ieta,iphim)]
+    end
+    map(i->tiling.jets[i...], indices)
+end
+
+
 
 struct ClusterSequence
     """This contains the physical PseudoJets; for each PseudoJet one
@@ -206,26 +298,25 @@ vector to get the physical PseudoJet."""
     Qtot
 end
 
-#FIXME: Use OffsetArrays
-"""Reasonably robust return of tile index given ieta and iphi, in particular
-it works even if iphi is negative."""
-_tile_index(tiling_setup, ieta::Integer, iphi::Integer) = begin
-    1 + (ieta-tiling_setup._tiles_ieta_min)*tiling_setup._n_tiles_phi + mod(iphi, tiling_setup._n_tiles_phi)
-end
+##FIXME: Use OffsetArrays
+#"""Reasonably robust return of tile index given ieta and iphi, in particular
+#it works even if iphi is negative."""
+#_tile_index(tiling_setup, ieta::Integer, iphi::Integer) = begin
+#    1 + (ieta-tiling_setup._tiles_ieta_min)*tiling_setup._n_tiles_phi + mod(iphi, tiling_setup._n_tiles_phi)
+#end
 
 
-#FIXME: return cartesian indices
 """Return the tile index corresponding to the given eta,phi point"""
 _tile_index(tiling_setup, eta::Float64, phi::Float64) = begin
     if eta <= tiling_setup._tiles_eta_min
-        ieta = 0
+        ieta = 1
     elseif eta >= tiling_setup._tiles_eta_max
-        ieta = tiling_setup._tiles_ieta_max - tiling_setup._tiles_ieta_min
+        ieta = tiling_setup._n_tiles_eta
     else
-        ieta = trunc(Int, (eta - tiling_setup._tiles_eta_min) / tiling_setup._tile_size_eta)
+        ieta = 1 + trunc(Int, (eta - tiling_setup._tiles_eta_min) / tiling_setup._tile_size_eta)
         # following needed in case of rare but nasty rounding errors
-        if ieta > tiling_setup._tiles_ieta_max - tiling_setup._tiles_ieta_min
-            ieta = tiling_setup._tiles_ieta_max - tiling_setup._tiles_ieta_min
+        if ieta > tiling_setup._n_tiles_eta
+            ieta = tiling_setup._n_tiles_eta
         end
     end
     # allow for some extent of being beyond range in calculation of phi
@@ -233,11 +324,9 @@ _tile_index(tiling_setup, eta::Float64, phi::Float64) = begin
     #iphi = (int(floor(phi/_tile_size_phi)) + _n_tiles_phi) % _n_tiles_phi;
     # with just int and no floor, things run faster but beware
     iphi = mod(trunc(Int, (phi + 2π) / tiling_setup._tile_size_phi),
-               tiling_setup._n_tiles_phi)
-    1 + iphi + ieta * tiling_setup._n_tiles_phi
+               tiling_setup._n_tiles_phi) + 1
+    CartesianIndex(ieta, iphi)
 end
-
-
 
 """"Have a binning of rapidity that goes from -nrap to nrap
 in bins of size 1; the left and right-most bins include
@@ -352,13 +441,10 @@ end
 
 """Remove a jet from a tiling"""
 _tj_remove_from_tiles!(tiling, jet) = begin
-
-    tile = tiling._tiles[jet.tile_index]
-
     if !isvalid(jet.previous)
         # we are at head of the tile, so reset it.
         # If this was the only jet on the tile then tile->head will now be NULL
-        tile.head = jet.next
+        tiling.tiles[jet.tile_index] = jet.next
     else
         # adjust link from previous jet in this tile
         jet.previous.next = jet.next
@@ -368,6 +454,8 @@ _tj_remove_from_tiles!(tiling, jet) = begin
         # adjust backwards-link from next jet in this tile
         jet.next.previous = jet.previous
     end
+
+    jet.next = jet.previous = noTiledJet #to be clean, but not mandatory
 end
 
 #----------------------------------------------------------------------
@@ -409,39 +497,16 @@ _initial_tiling(particles, Rparam) = begin
     tiles_ieta_max = floor(Int, tiles_eta_max/tile_size_eta) #FIXME shouldn't it be ceil ?
     tiles_eta_min = tiles_ieta_min * tile_size_eta
     tiles_eta_max = tiles_ieta_max * tile_size_eta
+    n_tiles_eta = tiles_ieta_max - tiles_ieta_min + 1
 
     tiling_setup = TilingDef(tiles_eta_min, tiles_eta_max,
-                             tile_size_eta, tile_size_phi, n_tiles_phi,
+                             tile_size_eta, tile_size_phi,
+                             n_tiles_eta, n_tiles_phi,
                              tiles_ieta_min, tiles_ieta_max)
 
     # allocate the tiles
-    ntiles = (tiles_ieta_max - tiles_ieta_min + 1) * n_tiles_phi
-    tiles = Vector{Tile}(undef, ntiles)
-    for i in eachindex(tiles)
-        tiles[i] = Tile()
-    end
-
-    #now set up the cross-referencing between tiles
-    for ieta in tiles_ieta_min:tiles_ieta_max
-        for iphi in 1:n_tiles_phi
-            icenter = _tile_index(tiling_setup, ieta, iphi)
-            #FIXME disable boundary check
-            deta_dphi = ((0, 0), #center
-                         (-1, -1), (-1,  0), (-1,  1), (0, -1), #left
-                         ( 0,  1), ( 1, -1), ( 1,  0), (1,  1)) #right
-
-            for ineigh in 1:9
-                neigh_ieta, neigh_iphi = ieta + deta_dphi[ineigh][1], iphi + deta_dphi[ineigh][2]
-                if tiles_ieta_min <= neigh_ieta <= tiles_ieta_max
-                    #FIXME add @inbounds ?
-                    jneigh = _tile_index(tiling_setup, neigh_ieta, neigh_iphi)
-                    tiles[icenter].surrounding[ineigh] = tiles[jneigh]
-                end
-            end
-        end
-    end
-
-    Tiling(tiling_setup, tiles)
+    tiling_size = (n_tiles_eta, n_tiles_phi)
+    Tiling(tiling_setup, fill(noTiledJet, tiling_size), fill(false, tiling_size))
 end
 
 
@@ -460,11 +525,11 @@ _tj_set_jetinfo!(jet::TiledJet, cs::ClusterSequence, jets_index, R2) = begin
     jet.tile_index = _tile_index(cs.tiling.setup, jet.eta, jet.phi)
 
     # Insert it into the tile's linked list of jets
-    tile = cs.tiling._tiles[jet.tile_index]
-    jet.previous   = noTiledJet
-    jet.next       = tile.head
+    jet.previous = noTiledJet
+    jet.next = cs.tiling.tiles[jet.tile_index]
     if isvalid(jet.next) jet.next.previous = jet; end
-    tile.head      = jet
+    cs.tiling.tiles[jet.tile_index] = jet
+    nothing
 end
 
 
@@ -476,7 +541,7 @@ end
 # #----------------------------------------------------------------------
 # #/ output the contents of the tiles
 # _print_tiles(tiling::Tiling) = begin
-#   for (itile, tile) in enumerate(tiling._tiles)
+#   for (itile, tile) in enumerate(tiling.tiles)
 #     print("Tile ", itile, " = ")
 #     print(join(map(x->x.jets_index, tile.jets, " ")))
 #     prinln()
@@ -491,13 +556,17 @@ false ---start adding from position n_near_tiles-1, and increase n_near_tiles as
 you go along. When a neighbour is added its tagged status is set to true. 
 
 Returns the updated number of near_tiles."""
-_add_untagged_neighbours_to_tile_union(center_tile, tile_union, n_near_tiles) = begin
-    for tile in center_tile.surrounding
-        isnothing(tile) && continue #on a boundary
-        tile.tagged && continue #skipped tagged tiles
-        n_near_tiles += 1
-        tile_union[n_near_tiles] = tile
-        tile.tagged = true
+_add_untagged_neighbours_to_tile_union(center_tile_index,
+                                       tile_union, n_near_tiles,
+                                       tiling) = begin
+                                           
+    for tile_index in surrounding_indices(center_tile_index, tiling)
+        @inbounds if(!tiling.tags[tile_index])
+            n_near_tiles += 1
+            tile_union[n_near_tiles] = tile_index
+            tiling.tags[tile_index] = true
+        else
+        end
     end
     n_near_tiles
 end
@@ -535,6 +604,7 @@ _add_step_to_history!(cs::ClusterSequence, parent1, parent2, jetp_index, dij) = 
                                      jetp_index, dij, max_dij_so_far))
     
     local_step = length(cs.history)
+
     ##ifndef __NO_ASSERTS__
     #assert(local_step == step_number);
     ##endif
@@ -548,13 +618,13 @@ _add_step_to_history!(cs::ClusterSequence, parent1, parent2, jetp_index, dij) = 
 
     @assert parent1 >= 1
     if cs.history[parent1].child != Invalid
-        throw(ErrorException("Internal error. Trying to recombine an object that has previsously been recombined"))
+        throw(ErrorException("Internal error. Trying to recombine an object that has previsously been recombined."))
     end
 
     cs.history[parent1].child = local_step
 
     if parent2 >= 1
-        cs.history[parent2].child == Invalid || throw(ErrorException("Internal error. Trying to recombine an object that has previsously been recombined"))
+        cs.history[parent2].child == Invalid || error("Internal error. Trying to recombine an object that has previsously been recombined.  Parent " * string(parent2) * "'s child index " * string(cs.history[parent1].child) * ". Parent jet index: " * string(cs.history[parent2].jetp_index) * ".")
         cs.history[parent2].child = local_step
     end
 
@@ -639,7 +709,7 @@ end
 _faster_tiled_N2_cluster(particles, Rparam, ptmin = 0.0) = begin
     R2 = Rparam * Rparam
     invR2 = 1.0/R2
-
+    
 
     # this will ensure that we can point to jets without difficulties
     # arising.
@@ -661,7 +731,7 @@ _faster_tiled_N2_cluster(particles, Rparam, ptmin = 0.0) = begin
 
     # will be used quite deep inside loops, but declare it here so that
     # memory (de)allocation gets done only once
-    tile_union = Vector{Tile}(undef, 3*_n_tile_neighbours)
+    tile_union = Vector{CartesianIndex{2}}(undef, 3*_n_tile_neighbours)
 
     # initialise the basic jet info
     for ij in eachindex(tiledjets)
@@ -674,11 +744,10 @@ _faster_tiled_N2_cluster(particles, Rparam, ptmin = 0.0) = begin
     #jets
 
     # set up the initial nearest neighbour information
-    for tile in cs.tiling._tiles
-        # first, do it for surrounding jets within the same tile
-        isvalid(tile.head) || continue
-        for jetA in tile.head
-            for jetB in tile.head
+    for tile in cs.tiling.tiles
+        isvalid(tile) || continue #short cut but not mandatory
+        for jetA in tile
+            for jetB in tile
                 if jetB == jetA break; end
                 dist = _tj_dist(jetA, jetB)
                 if (dist < jetA.NN_dist)
@@ -691,13 +760,12 @@ _faster_tiled_N2_cluster(particles, Rparam, ptmin = 0.0) = begin
                 end
             end #next jetA
         end #next jetA
-
+        
         # look for neighbour jets n the neighbour tiles
-        for rtile in tile.surrounding[_tile_right_neigbour_indices]
-            (isnothing(rtile) || !isvalid(rtile.head)) && continue
-
-            for jetA in tile.head
-                for jetB in rtile.head
+        for rtile in rightneighbours(tile.tile_index, tiling)
+            isnothing(rtile) && continue
+            for jetA in tile
+                for jetB in rtile
                     dist = _tj_dist(jetA, jetB)
                     if (dist < jetA.NN_dist)
                         jetA.NN_dist = dist
@@ -763,9 +831,7 @@ _faster_tiled_N2_cluster(particles, Rparam, ptmin = 0.0) = begin
 
             # recombine jetA and jetB and retrieves the new index, nn
             nn = _do_ij_recombination_step!(cs, jetA.jets_index, jetB.jets_index, diJ_min)
-            
-            _tj_remove_from_tiles!(cs.tiling, jetA)
-
+            _tj_remove_from_tiles(cs.tiling, jetA)
             oldB = copy(jetB)  # take a copy because we will need it...
 
             _tj_remove_from_tiles!(cs.tiling, jetB)
@@ -783,16 +849,16 @@ _faster_tiled_N2_cluster(particles, Rparam, ptmin = 0.0) = begin
         # basically a combination of vicinity of the tiles of the two old
         # and one new jets.
         n_near_tiles = 0
-        n_near_tiles = _add_untagged_neighbours_to_tile_union(cs.tiling._tiles[jetA.tile_index],
-   	                                                      tile_union, n_near_tiles)
+        n_near_tiles = _add_untagged_neighbours_to_tile_union(jetA.tile_index,
+   	                                                      tile_union, n_near_tiles, tiling)
         if isvalid(jetB)
             if jetB.tile_index != jetA.tile_index
-                n_near_tiles = _add_untagged_neighbours_to_tile_union(cs.tiling._tiles[jetB.tile_index],
-   		                                                      tile_union, n_near_tiles)
+                n_near_tiles = _add_untagged_neighbours_to_tile_union(jetB.tile_index,
+   		                                                      tile_union, n_near_tiles, tiling)
             end
             if oldB.tile_index != jetA.tile_index && oldB.tile_index != jetB.tile_index
-                n_near_tiles = _add_untagged_neighbours_to_tile_union(cs.tiling._tiles[oldB.tile_index],
-   		                                                      tile_union, n_near_tiles)
+                n_near_tiles = _add_untagged_neighbours_to_tile_union(oldB.tile_index,
+   		                                                      tile_union, n_near_tiles, tiling)
             end
         end #isvalid(jetB)
 
@@ -803,7 +869,7 @@ _faster_tiled_N2_cluster(particles, Rparam, ptmin = 0.0) = begin
         NNs[n].diJ_posn = jetA.diJ_posn
         diJ[jetA.diJ_posn] = diJ[n]
         NNs[jetA.diJ_posn] = NNs[n]
-
+        
         # then reduce size of table
         n -= 1
         
@@ -811,23 +877,22 @@ _faster_tiled_N2_cluster(particles, Rparam, ptmin = 0.0) = begin
         # other particles.
         # Run over all tiles in our union
         for itile in 1:n_near_tiles
-            tile = tile_union[itile]
-            tile.tagged = false # reset tag, since we're done with unions
-
-            isvalid(tile.head) || continue
+            tile = tiling.tiles[tile_union[itile]]
+            tiling.tags[tile_union[itile]] = false # reset tag, since we're done with unions
+            
+            isvalid(tile) || continue #Probably not required
             
             # run over all jets in the current tile
-            for jetI in tile.head
+            for jetI in tile
     	        # see if jetI had jetA or jetB as a NN -- if so recalculate the NN
     	        if jetI.NN == jetA || (jetI.NN == jetB && isvalid(jetB))
     	            jetI.NN_dist = R2
     	            jetI.NN      = noTiledJet
-
+                    
     	            # now go over tiles that are neighbours of I (include own tile)
-    	            for near_tile in tile.surrounding
-                        (!isnothing(near_tile) && isvalid(near_tile.head)) || continue
+    	            for near_tile in surrounding(tile.tile_index, tiling)
     	                # and then over the contents of that tile
-    	                for jetJ in near_tile.head
+    	                for jetJ in near_tile
     	                    dist = _tj_dist(jetI, jetJ)
     	                    if dist < jetI.NN_dist && jetJ != jetI
     		                jetI.NN_dist = dist
@@ -848,7 +913,6 @@ _faster_tiled_N2_cluster(particles, Rparam, ptmin = 0.0) = begin
     	                    jetI.NN_dist = dist
     	                    jetI.NN = jetB
     	                    #diJ[jetI.diJ_posn].diJ = _tj_diJ(jetI) # update diJ...
-                            #diJ[jetI.diJ_posn] = _DiJ_plus_link(_tj_diJ(jetI), jetI) # update diJ...
                             diJ[jetI.diJ_posn] = _tj_diJ(jetI) # update diJ...
     	                end
                     end
