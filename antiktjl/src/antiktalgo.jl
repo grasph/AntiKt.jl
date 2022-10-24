@@ -195,7 +195,26 @@ struct Tiling{F,I}
     tags::Matrix{Bool}
 end
 
-surrounding_indices(center::CartesianIndex{2}, tiling::Tiling) = begin
+struct Surrounding{N}
+    indices::NTuple{N, CartesianIndex{2}}
+end
+
+import Base.iterate
+
+Base.iterate(x::T) where {T<:Surrounding} = (x.indices[1], 2)
+Base.iterate(x::Surrounding{0}) = nothing
+Base.iterate(x::Surrounding{1}, state) = nothing
+Base.iterate(x::Surrounding{2}, state) = nothing
+Base.iterate(x::Surrounding{3}, state) = state > 3 ? nothing : (x.indices[state], state+1)
+Base.iterate(x::Surrounding{4}, state) = state > 4 ? nothing : (x.indices[state], state+1)
+Base.iterate(x::Surrounding{6}, state) = state > 6 ? nothing : (x.indices[state], state+1)
+Base.iterate(x::Surrounding{9}, state) = state > 9 ? nothing : (x.indices[state], state+1)
+
+import Base.length
+length(x::Surrounding{N}) where N = N
+
+
+surrounding(center::CartesianIndex{2}, tiling::Tiling) = begin
 #                        4|6|9 
 #                        3|1|8 
 #                        2|5|7 
@@ -207,29 +226,24 @@ surrounding_indices(center::CartesianIndex{2}, tiling::Tiling) = begin
     iphim = mod1(iphi-1, iphimax)
     iphip = mod1(iphi+1, iphimax)
 
-    indices = NTuple{2, Int}[]
-
     CI = CartesianIndex{2}
     
     if ietamax == 1
-        indices = [CI(ieta, iphi), CI(ieta, phim), CI(ieta, iphip)]
+        return Surrounding{3}((CI(ieta, iphi), CI(ieta, iphim), CI(ieta, iphip)))
     elseif ieta == 1
-        indices = [CI(ieta,iphi), CI(ieta, iphim), CI(ieta, iphip),
-                   CI(ietap, iphim), CI(ietap, iphi), CI(ietap, iphip)]
+        return Surrounding{6}((CI(ieta,iphi), CI(ieta, iphim), CI(ieta, iphip),
+                               CI(ietap, iphim), CI(ietap, iphi), CI(ietap, iphip)))
     elseif ieta == ietamax
-        indices = [CI(ieta,iphi),
-                   CI(ietam, iphim), CI(ietam, iphi), CI(ietam, iphip),
-                   CI(ieta, iphim), CI(ieta, iphip)]
+        return Surrounding{6}((CI(ieta,iphi),
+                               CI(ietam, iphim), CI(ietam, iphi), CI(ietam, iphip),
+                               CI(ieta, iphim), CI(ieta, iphip)))
     else
-        indices = [CI(ieta,iphi),
-                   CI(ietam, iphim), CI(ietam, iphi), CI(ietam, iphip),
-                   CI(ieta, iphim), CI(ieta, iphip),
-                   CI(ietap, iphim), CI(ietap, iphi), CI(ietap, iphip)]
+        return Surrounding{9}((CI(ieta,iphi),
+                               CI(ietam, iphim), CI(ietam, iphi), CI(ietam, iphip),
+                               CI(ieta, iphim), CI(ieta, iphip),
+                               CI(ietap, iphim), CI(ietap, iphi), CI(ietap, iphip)))
     end
-    indices
 end
-
-surrounding(center::CartesianIndex{2}, tiling::Tiling) = map(x->tiling.tiles[x], surrounding_indices(center, tiling))
 
 rightneighbours(tile_index::CartesianIndex{2}, tiling::Tiling) = begin
     #                         |1|4 
@@ -242,42 +256,16 @@ rightneighbours(tile_index::CartesianIndex{2}, tiling::Tiling) = begin
     iphim = mod1(iphi-1, iphimax)
     iphip = mod1(iphi+1, iphimax)
 
-    indices = NTuple{2, Int}[]
+    CI = CartesianIndex{2}
     if ietamax == 1
-        #no-op
+        return Surrounding{0}(NTuple{0, CI}())
     elseif ieta == ietamax
-        indices = [(ieta,iphip)]
+        return Surrounding{1}((CI(ieta,iphip),))
     else
-        indices = [(ieta,iphip),
-                   (ietap, iphim), (ietap, iphi), (ietap, iphip)]
+        return Surrounding{4}((CI(ieta, iphip),
+                               CI(ietap, iphim), CI(ietap, iphi), CI(ietap, iphip)))
     end
-    map(i->tiling.tiles[i...], indices)
 end
-
-leftneighbours(j::TiledJet, tiling::Tiling) = begin
-    #                        3| |  
-    #                        2| |  
-    #                        1|4|  
-    #  -> η   
-    ieta, iphi = Tuple(j.tile_index)
-    ietamax, iphimax = tiling.setup._n_tiles_eta, tiling.setup._n_tiles_phi
-    ietam = ieta - 1
-    ietap = ieta + 1
-    iphim = mod1(iphi-1, iphimax)
-    iphip = mod1(iphi+1, iphimax)
-
-    indices = NTuple{2, Int}[]
-    if ietamin == 1 || j == noTiledJet
-        #no-op
-    elseif ieta == ietamin
-        indices = [(ieta,iphim)]
-    else
-        indices = [(ietam, iphim), (ietam, iphi), (ietam, iphip),
-                   (ieta,iphim)]
-    end
-    map(i->tiling.jets[i...], indices)
-end
-
 
 
 struct ClusterSequence
@@ -560,7 +548,7 @@ _add_untagged_neighbours_to_tile_union(center_tile_index,
                                        tile_union, n_near_tiles,
                                        tiling) = begin
                                            
-    for tile_index in surrounding_indices(center_tile_index, tiling)
+    for tile_index in surrounding(center_tile_index, tiling)
         @inbounds if(!tiling.tags[tile_index])
             n_near_tiles += 1
             tile_union[n_near_tiles] = tile_index
@@ -745,7 +733,7 @@ _faster_tiled_N2_cluster(particles, Rparam, ptmin = 0.0) = begin
 
     # set up the initial nearest neighbour information
     for tile in cs.tiling.tiles
-        isvalid(tile) || continue #short cut but not mandatory
+        isvalid(tile) || continue
         for jetA in tile
             for jetB in tile
                 if jetB == jetA break; end
@@ -762,10 +750,9 @@ _faster_tiled_N2_cluster(particles, Rparam, ptmin = 0.0) = begin
         end #next jetA
         
         # look for neighbour jets n the neighbour tiles
-        for rtile in rightneighbours(tile.tile_index, tiling)
-            isnothing(rtile) && continue
+        for rtile_index in rightneighbours(tile.tile_index, tiling)
             for jetA in tile
-                for jetB in rtile
+                for jetB in tiling.tiles[rtile_index]
                     dist = _tj_dist(jetA, jetB)
                     if (dist < jetA.NN_dist)
                         jetA.NN_dist = dist
@@ -800,7 +787,7 @@ _faster_tiled_N2_cluster(particles, Rparam, ptmin = 0.0) = begin
     # now run the recombination loop
     history_location = length(cs.jets)
     n = length(cs.jets)
-    while n > 1
+    while n > 1 #0 in C++ implementation, but the last iteration seems superfluous
         # find the minimum of the diJ on this round
         best = 1
         @inbounds diJ_min = diJ[1] # initialize the best one here.
@@ -831,7 +818,7 @@ _faster_tiled_N2_cluster(particles, Rparam, ptmin = 0.0) = begin
 
             # recombine jetA and jetB and retrieves the new index, nn
             nn = _do_ij_recombination_step!(cs, jetA.jets_index, jetB.jets_index, diJ_min)
-            _tj_remove_from_tiles(cs.tiling, jetA)
+            _tj_remove_from_tiles!(cs.tiling, jetA)
             oldB = copy(jetB)  # take a copy because we will need it...
 
             _tj_remove_from_tiles!(cs.tiling, jetB)
@@ -890,9 +877,9 @@ _faster_tiled_N2_cluster(particles, Rparam, ptmin = 0.0) = begin
     	            jetI.NN      = noTiledJet
                     
     	            # now go over tiles that are neighbours of I (include own tile)
-    	            for near_tile in surrounding(tile.tile_index, tiling)
+    	            for near_tile_index in surrounding(tile.tile_index, tiling)
     	                # and then over the contents of that tile
-    	                for jetJ in near_tile
+    	                for jetJ in tiling.tiles[near_tile_index]
     	                    dist = _tj_dist(jetI, jetJ)
     	                    if dist < jetI.NN_dist && jetJ != jetI
     		                jetI.NN_dist = dist
