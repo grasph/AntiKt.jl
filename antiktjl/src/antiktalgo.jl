@@ -449,9 +449,9 @@ _tj_set_jetinfo!(jet::TiledJet, cs::ClusterSequence, jets_index, R2) = begin
 end
 
 
-Base.iterate(tj::TiledJet) = (tj, tj)
+Base.iterate(tj::TiledJet) = isnothing(tj) ? nothing : (tj, tj)
 Base.iterate(tj::TiledJet, state::TiledJet) = begin
-    isnothing(state.next) ? nothing : (state.next, state.next)
+    isnothing(state.next) ? nothing : (state.next::TiledJet, state.next::TiledJet)
 end
 
 # #----------------------------------------------------------------------
