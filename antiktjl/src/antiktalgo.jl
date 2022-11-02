@@ -431,12 +431,12 @@ _initial_tiling(particles, Rparam) = begin
         for iphi in 1:n_tiles_phi
             icenter = _tile_index(tiling_setup, ieta, iphi)
             #FIXME disable boundary check
-            deta_dphi = [(0, 0), #center
-                         (-1, -1), (-1, 0), (-1, 1), ( 0, -1), #left
-                         ( 0,  1), ( 1,-1), ( 1, 0), ( 1,  1)] #right
+            deta_dphi = ((0, 0), #center
+                         (-1, -1), (-1,  0), (-1,  1), (0, -1), #left
+                         ( 0,  1), ( 1, -1), ( 1,  0), (1,  1)) #right
 
-            for ineigh in eachindex(deta_dphi)
-                neigh_ieta, neigh_iphi = @. (ieta, iphi) + deta_dphi[ineigh]
+            for ineigh in 1:9
+                neigh_ieta, neigh_iphi = ieta + deta_dphi[ineigh][1], iphi + deta_dphi[ineigh][2]
                 if tiles_ieta_min <= neigh_ieta <= tiles_ieta_max
                     #FIXME add @inbounds ?
                     jneigh = _tile_index(tiling_setup, neigh_ieta, neigh_iphi)
