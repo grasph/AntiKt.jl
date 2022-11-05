@@ -1,14 +1,16 @@
 #!/usr/bin/env julia
+# -*- mode: julia; vim: set ft=julia: -*-
 # an example program showing how to use fastjet
-
 import HepMC3
 using AntiKt
 using ArgParse
-import Profile
+using Profile
+import FlameGraphs
+using Colors
 using StatProfilerHTML
+import ProfileSVG
 const R = 0.4
 const ptmin = 5.0
-
 
 read_events(fname, maxevents=-1, skipevents = 0) = begin
     f = open(fname)
@@ -28,56 +30,77 @@ read_events(fname, maxevents=-1, skipevents = 0) = begin
     events
 end
 
-in_mem_process(events, niters=1, gcoff=false; profile=false) = begin
+in_mem_process(events, niters=1, gcoff=false; profile=false, timing=true) = begin
     length(events) == 0 && return nothing
     
     #warm-up
     jets = antikt(events[1], R, ptmin)
-    
-    njets_acc = 0
-    acc = 0.
-    acc2 = 0.
-    for i in 1:niters
-        print("\u0d", i, " / ", niters)
-        GC.gc()
-        gcoff && GC.enable(false)
-        t0 = time_ns()
-        for evt in events
-            jets = antikt(evt, R, ptmin)
-            njets_acc += length(jets)
-        end
-        t1 = time_ns()
-        gcoff && GC.enable(true)
-        dt_μs = convert(Float64, t1-t0) * 1.e-3
-        acc += dt_μs
-        acc2 += dt_μs^2
-    end
-    println()
-    mean = acc / niters
-    acc2 /= niters
-    sigma = sqrt(niters/(niters-1) * (acc2 - mean^2))
-    mean /= length(events)
-    sigma /= length(events)
-    err = niters > 1 ? err = " ± " * string(sigma) : ""
-    println("Duration: ", mean, err, " us/event")
-    println("Numer of processed events:", length(events))
-    println("Sum of jet multiplicity over the processed events: ", njets_acc)
 
-    if profile
-        Profile.init(n = 10^7, delay = 0.00001)
-        @profilehtml begin
+    if timing
+        njets_acc = 0
+        acc = 0.
+            acc2 = 0.
             for i in 1:niters
-               for evt in events
-                   antikt(evt, R, ptmin)
-               end
+                print("\u0d", i, " / ", niters)
+                GC.gc()
+                gcoff && GC.enable(false)
+                t0 = time_ns()
+                for evt in events
+                    jets = antikt(evt, R, ptmin)
+                    njets_acc += length(jets)
+                end
+                t1 = time_ns()
+                gcoff && GC.enable(true)
+                dt_μs = convert(Float64, t1-t0) * 1.e-3
+                acc += dt_μs
+                acc2 += dt_μs^2
+            end
+        println()
+        mean = acc / niters
+        acc2 /= niters
+        sigma = sqrt(niters/(niters-1) * (acc2 - mean^2))
+        mean /= length(events)
+        sigma /= length(events)
+        err = niters > 1 ? err = " ± " * string(sigma) : ""
+        println("Duration: ", mean, err, " us/event")
+        println("Numer of processed events:", length(events))
+        println("Sum of jet multiplicity over the processed events: ", njets_acc)
+    end
+    
+    if profile
+        Profile.init(n = 10^6, delay = 0.00001)
+        profile_events(events) = begin
+            for evt in events
+                antikt(evt, R, ptmin)
             end
         end
+        profile_events(events[1:1])
+        @profile for i in 1:niters; profile_events(events); end
+	statprofilehtml()
+#Light scheme#        fcolor = FlameGraphs.FlameColors(reverse(colormap("Blues", 10)[2:6]),
+#Light scheme#                                         colorant"white",
+#Light scheme#                                         colorant"black",
+#Light scheme#                                         reverse(colormap("Reds", 8)[2:6]),
+#Light scheme#                                         sequential_palette(39, 6; s=38, b=3)[1:5] #yellow-orange pallette
+#Light scheme#                                         )
+        fcolor = FlameGraphs.FlameColors(reverse(colormap("Blues", 15))[1:5],
+                                         colorant"slategray4",
+                                         colorant"gray95",
+                                         reverse(colormap("Reds", 15))[1:5],
+                                         reverse(sequential_palette(39, 10; s=38, b=2))[1:5]#brownish pallette
+                                         )        
+        ProfileSVG.save(fcolor, joinpath("statprof", "profsvg.svg"); combine=true,
+                        timeunit=:ms, font="Arial, Helvetica, sans-serif")
+	println("Flame graph from ProfileSVG.jl at file://", abspath("statprof/profsvg.svg"), """
+\tRedish:        runtime dispatch
+\tYellow-orange: Garbage collection
+\tBlue:          OK 
+""")
     end
-    nothing
 end
 
 parse_command_line(args) = begin
-    s = ArgParseSettings()
+    s = ArgParseSettings(autofix_names=true)
     @add_arg_table s begin
         "--maxevents", "-n"
         help = "Maximum number of events to read. -1 to read all events from the  file."
@@ -97,6 +120,9 @@ parse_command_line(args) = begin
 	"--profile"
 	help = "Profile code and generate a flame graph."
 	action = :store_true
+	"--profile-only"
+	help = "Profile code and generate a flame graph. Skip the code timing."
+	action = :store_true
         "file"
         help = "HepMC3 event file in HepMC3 to read."
         required = true
@@ -107,7 +133,7 @@ end
 main() = begin
     args = parse_command_line(ARGS)
     events::Vector{Vector{PseudoJet}} = read_events(args[:file], args[:maxevents], args[:skip])
-    in_mem_process(events, args[:nsamples], args[:gcoff]; profile=args[:profile])
+    in_mem_process(events, args[:nsamples], args[:gcoff]; profile=args[:profile] || args[:profile_only], timing=!args[:profile_only])
     nothing
 end
 
