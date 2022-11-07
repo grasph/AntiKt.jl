@@ -28,6 +28,8 @@
 """
 module AntiKt
 
+using Accessors
+
 export PseudoJet, antikt
 
 include("pseudojet.jl")

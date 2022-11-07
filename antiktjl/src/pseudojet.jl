@@ -44,7 +44,7 @@ const _MaxRap = 1e5
 # \class PseudoJet
 # Class to contain pseudojets, including minimal information of use to
 # jet-clustering routines.
-mutable struct PseudoJet<:FourMomentum
+struct PseudoJet<:FourMomentum
     # construct a pseudojet from explicit components
     px::Float64
     py::Float64
@@ -64,7 +64,7 @@ PseudoJet(px, py, pz, E) = begin
 end
 
 
-set_momentum(j::PseudoJet, px, py, pz, E) = begin
+#=set_momentum(j::PseudoJet, px, py, pz, E) = begin
     j.px = px
     j.py = py
     j.pz = pz
@@ -73,7 +73,7 @@ set_momentum(j::PseudoJet, px, py, pz, E) = begin
     j._inv_pt2 = 1.0/j._pt2
     j._rap = NaN
     j._phi = NaN
-end
+end=#
 
 _fix_phi(phi::Real) = begin
     if phi < 0.0

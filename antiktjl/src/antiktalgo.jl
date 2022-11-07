@@ -42,7 +42,7 @@ mydebug(x...) = println(">>+> ", x...)
 """
 flatindex(c::CartesianIndex{2},a::Matrix) = (c[1]-1)*size(a)[2] + c[2]
 
-mutable struct HistoryElement
+struct HistoryElement
     """Index in _history where first parent of this jet
     was created (InexistentParent if this jet is an
     original particle)"""
@@ -583,7 +583,8 @@ _initial_history(particles) = begin
         history[i] = HistoryElement(i)
 
         # get cross-referencing right from PseudoJets
-        particles[i]._cluster_hist_index = i
+        p = particles[i]
+        particles[i] = @set p._cluster_hist_index = i
 
         # determine the total energy in the event
         Qtot += particles[i].E
@@ -617,17 +618,20 @@ _add_step_to_history!(cs::ClusterSequence, parent1, parent2, jetp_index, dij) = 
         throw(ErrorException("Internal error. Trying to recombine an object that has previsously been recombined."))
     end
 
-    cs.history[parent1].child = local_step
+    hist_elem = cs.history[parent1]
+    cs.history[parent1] = @set hist_elem.child = local_step
 
     if parent2 >= 1
         cs.history[parent2].child == Invalid || error("Internal error. Trying to recombine an object that has previsously been recombined.  Parent " * string(parent2) * "'s child index " * string(cs.history[parent1].child) * ". Parent jet index: " * string(cs.history[parent2].jetp_index) * ".")
-        cs.history[parent2].child = local_step
+        hist_elem = cs.history[parent2]
+        cs.history[parent2] = @set hist_elem.child = local_step
     end
 
     # get cross-referencing right from PseudoJets
     if jetp_index != Invalid
         @assert jetp_index >= 1
-        cs.jets[jetp_index]._cluster_hist_index = local_step
+        jet = cs.jets[jetp_index]
+        cs.jets[jetp_index] = @set jet._cluster_hist_index = local_step
     end
 
     #if (_writeout_combinations) {
@@ -655,7 +659,8 @@ _do_ij_recombination_step!(cs::ClusterSequence, jet_i, jet_j, dij) = begin
     newstep_k = length(cs.history) + 1
 
     # and provide jet with the info
-    cs.jets[newjet_k]._cluster_hist_index = newstep_k
+    jet = cs.jets[newjet_k]
+    cs.jets[newjet_k] = @set jet._cluster_hist_index = newstep_k
 
     # finally sort out the history
     hist_i = cs.jets[jet_i]._cluster_hist_index
