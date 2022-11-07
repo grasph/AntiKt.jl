@@ -687,7 +687,7 @@ inclusive_jets(cs::ClusterSequence, ptmin = 0.) = begin
         elt.parent2 == BeamJet || continue
         iparent_jet = cs.history[elt.parent1].jetp_index
         jet = cs.jets[iparent_jet]
-        if jet.pt2 >= dcut
+        if jet._pt2 >= dcut
             push!(jets_local, jet)
         end
     end

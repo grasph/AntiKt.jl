@@ -64,22 +64,6 @@ PseudoJet(px, py, pz, E) = begin
 end
 
 
-import Base.getproperty
-Base.getproperty(x::PseudoJet, sym::Symbol) = begin
-    if sym === :pt2
-        return x._pt2
-    elseif sym === :pt
-        return sqrt(x._pt2)
-    elseif sym == :rap
-        return _get_rap(x)
-    elseif sym == :phi
-        return _get_phi(x)
-    else
-        return getfield(x, sym)
-    end
-end
-
-
 set_momentum(j::PseudoJet, px, py, pz, E) = begin
     j.px = px
     j.py = py
@@ -126,11 +110,11 @@ end
 
 phi(p::PseudoJet) = phi_02pi(p)
 
-phi_02pi(p::PseudoJet) = p.phi
+phi_02pi(p::PseudoJet) = _get_phi(p)
 
-rap(p::PseudoJet) = p.rap
+rap(p::PseudoJet) = _get_rap(p)
 
-pt2(p::PseudoJet) = p.pt2
+pt2(p::PseudoJet) = p._pt2
 
 eta(p::PseudoJet) = p.rap
 
