@@ -3,7 +3,6 @@
 
 import HepMC3
 using AntiKt
-using Printf
 using ArgParse
 import Profile
 using StatProfilerHTML

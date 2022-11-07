@@ -1,0 +1,6 @@
+[deps]
+AntiKt = "b1d79ec0-5126-4cc0-8710-7ce7530fd203"
+ArgParse = "c7e460c6-2fb9-53a9-8c5b-16f535851c63"
+HepMC3 = "423f2d09-83c6-4bed-945f-581c3d5a0e70"
+Profile = "9abbd945-dff8-562f-b5e8-e1ebf5ef1b79"
+StatProfilerHTML = "a8a75453-ed82-57c9-9e16-4cd1196ecbf5"
