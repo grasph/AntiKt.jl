@@ -55,13 +55,14 @@ mutable struct PseudoJet<:FourMomentum
     _phi::Float64
     _pt2::Float64
     _inv_pt2::Float64
-    PseudoJet(px, py, pz, E) = begin
-        j = new(px, py, pz, E, 0, NaN, NaN)
-        j._pt2 = px*px +py*py
-        j._inv_pt2 = 1.0 / j._pt2
-        j
-    end
 end
+
+PseudoJet(px, py, pz, E) = begin
+    pt2 = px*px +py*py
+    inv_pt2 = inv(pt2)
+    PseudoJet(px, py, pz, E, 0, NaN, NaN, pt2, inv_pt2)
+end
+
 
 import Base.getproperty
 Base.getproperty(x::PseudoJet, sym::Symbol) = begin
