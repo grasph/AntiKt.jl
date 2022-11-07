@@ -71,11 +71,9 @@ Base.getproperty(x::PseudoJet, sym::Symbol) = begin
     elseif sym === :pt
         return sqrt(x._pt2)
     elseif sym == :rap
-        _ensure_valid_rap_phi(x)
-        return x._rap
+        return _get_rap(x)
     elseif sym == :phi
-        _ensure_valid_rap_phi(x)
-        return x._phi
+        return _get_phi(x)
     else
         return getfield(x, sym)
     end
@@ -93,34 +91,37 @@ set_momentum(j::PseudoJet, px, py, pz, E) = begin
     j._phi = NaN
 end
 
-_ensure_valid_rap_phi(p::PseudoJet) = isnan(p._phi) && _set_rap_phi!(p)
+_fix_phi(phi::Real) = begin
+    if phi < 0.0
+        phi + 2π
+    elseif phi >= 2π
+       phi - 2π  # can happen if phi=-|eps<1e-15|?
+    else
+        phi
+   end
+end
 
-_set_rap_phi!(p::PseudoJet) = begin
+_get_phi(p::PseudoJet) = begin
+    _fix_phi(p._pt2 == 0.0 ? 0.0 : atan(p.py,p.px))
+end
 
-    p._phi = p._pt2 == 0.0 ? 0.0 : atan(p.py,p.px)
-    if p._phi < 0.0
-         p._phi += 2π
-     elseif p._phi >= 2π
-        p._phi -= 2π  # can happen if phi=-|eps<1e-15|?
-    end
-
+_get_rap(p::PseudoJet) = begin
     if p.E == abs(p.pz) && iszero(p._pt2)
         # Point has infinite rapidity -- convert that into a very large
         #    number, but in such a way that different 0-pt momenta will have
         #    different rapidities (so as to lift the degeneracy between
         #                         them) [this can be relevant at parton-level]
         MaxRapHere = _MaxRap + abs(p.pz)
-        p._rap = p.pz >= 0.0 ?  MaxRapHere : -MaxRapHere
+        p.pz >= 0.0 ?  MaxRapHere : -MaxRapHere
     else
         # get the rapidity in a way that's modestly insensitive to roundoff
         # error when things pz,E are large (actually the best we can do without
         # explicit knowledge of mass)
         effective_m2 = max(0.0, m2(p)) # force non tachyonic mass
         E_plus_pz    = p.E + abs(p.pz) # the safer of p+, p-
-        p._rap = 0.5*log((p._pt2 + effective_m2)/(E_plus_pz*E_plus_pz))
-        if p.pz > 0 p._rap = - p._rap; end
+        rap_tmp = 0.5*log((p._pt2 + effective_m2)/(E_plus_pz*E_plus_pz))
+        p.pz > 0 ? - rap_tmp : rap_tmp
     end
-    nothing
 end
 
 phi(p::PseudoJet) = phi_02pi(p)
