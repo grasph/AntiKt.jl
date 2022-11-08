@@ -15,7 +15,7 @@ Hardware: laptop with an Intel(R) Core(TM) i7-8550U CPU, 8 GB of RAM.
 
 Reference timing from C++ code: 263 ± 9 μs
 
-**Time with the latest julia implementation: 379 ± 15 μs, 1.4x C++ implementation.**
+**Time with the latest julia implementation: 315 ± 7 μs, 1.2x C++ implementation.**
 
 JIT compiling is excluded from the measurement: function called once before the timing to trigger the compilation.
 
@@ -29,7 +29,7 @@ Optimisation history:
 | Removed the Union{Nothing, X} (two of them)                               |   491 ± 14 μs    | 1.8 |
 | Replaced a Vector by a static array                                       |   390 ±  9 μs    | 1.5 |
 | Optimized tile neighbour iteration                                        |   331 ±  5 μs    | 1.3 | 
-
+| Removed several boundary checks                                           |   315 ±  7 μs    | 1.2 | 
 ## Running the benchmark
 
 ### Prerequeries

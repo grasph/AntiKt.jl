@@ -4,7 +4,7 @@
 ///
 /// fastjet basic example program:
 ///   simplest illustration of the usage of the basic classes:
-///   fastjet::PseudoJet, fastjet::JetDefinition and 
+///   fastjet::PseudoJet, fastjet::JetDefinition and
 ///   fastjet::ClusterSequence
 ///
 /// run it with    : ./01-basic < data/single-event.dat
@@ -60,20 +60,20 @@ int n_tests = 1000;
 
 /// an example program showing how to use fastjet
 //int main(){
-//  
+//
 //  // read in input particles
 //  //----------------------------------------------------------
 //  vector<fastjet::PseudoJet> input_particles;
-//  
+//
 //  double px, py , pz, E;
 //  while (cin >> px >> py >> pz >> E) {
 //    // create a fastjet::PseudoJet with these components and put it onto
 //    // back of the input_particles vector
-//    input_particles.push_back(fastjet::PseudoJet(px,py,pz,E)); 
+//    input_particles.push_back(fastjet::PseudoJet(px,py,pz,E));
 //  }
-//  
 //
-//  // create a jet definition: 
+//
+//  // create a jet definition:
 //  // a jet algorithm with a given radius parameter
 //  //----------------------------------------------------------
 //  double R = 0.4;
@@ -94,14 +94,14 @@ int n_tests = 1000;
 //  // tell the user what was done
 //  //  - the description of the algorithm used
 //  //  - extract the inclusive jets with pt > 5 GeV
-//  //    show the output as 
+//  //    show the output as
 //  //      {index, rap, phi, pt}
 //  //----------------------------------------------------------
 //  cout << "Ran " << jet_def.description() << endl;
 //
 //  // label the columns
 //  printf("%5s %15s %15s %15s\n","jet #", "rapidity", "phi", "pt");
-// 
+//
 //  // print out the details for each jet
 //  for (unsigned int i = 0; i < inclusive_jets.size(); i++) {
 //    printf("%5u %15.8f %15.8f %15.8f\n",
@@ -115,8 +115,8 @@ int n_tests = 1000;
 
 
 
-void in_mem_process(const char* fname, long long maxevents = -1){
-  
+void in_mem_process(const char* fname, long long maxevents = -1, bool dump = false){
+
   HepMC3::ReaderAscii input_file (fname);
 
   int events_parsed = 0;
@@ -124,11 +124,11 @@ void in_mem_process(const char* fname, long long maxevents = -1){
   std::vector<std::vector<PseudoJet>> events;
 
   while(!input_file.failed()) {
-    
+
     if(maxevents >= 0 && events_parsed >= maxevents) break;
-    
+
     std::vector<PseudoJet> input_particles;
-    
+
     HepMC3::GenEvent evt(HepMC3::Units::GEV, HepMC3::Units::MM);
 
     // Read event from input file
@@ -151,27 +151,33 @@ void in_mem_process(const char* fname, long long maxevents = -1){
 
     events.push_back(input_particles);
   }
-  
+
   if(events.size() == 0) return;
 
   fastjet::JetDefinition jet_def(fastjet::antikt_algorithm, R, E_scheme, N2Tiled);
-  
-  //warm up
-  fastjet::ClusterSequence clust_seq(events[0], jet_def);
-  auto inclusive_jets = clust_seq.inclusive_jets(ptmin);
-  
-  // label the columns
-  printf("Jets in the first processed event:\n");
-  printf("%5s %15s %15s %15s\n","jet #", "rapidity", "phi", "pt");
-  
-  // print out the details for each jet
-  for (unsigned int i = 0; i < inclusive_jets.size(); i++) {
-    printf("%5u %15.8f %15.8f %15.8f\n",
-	   i, inclusive_jets[i].rap(), inclusive_jets[i].phi(),
-	   inclusive_jets[i].pt());
+
+  int ndumps = dump ? events.size() : 1;
+  for(int ievt = 0; ievt < ndumps; ++ievt){
+    printf("Event %d\n", ievt + 1);
+
+    const auto& evt = events[ievt];
+
+    fastjet::ClusterSequence clust_seq(evt, jet_def);
+    auto inclusive_jets = clust_seq.inclusive_jets(ptmin);
+
+    // label the columns
+    printf("%5s %15s %15s %15s\n","jet #", "rapidity", "phi", "pt");
+
+    // print out the details for each jet
+    for (unsigned int i = 0; i < inclusive_jets.size(); i++) {
+      printf("%5u %15.8f %15.8f %15.8f\n",
+	     i, inclusive_jets[i].rap(), inclusive_jets[i].phi(),
+	     inclusive_jets[i].pt());
+    }
+    printf("\n");
   }
-  printf("\n");
-  
+
+
   int njet_acc = 0;
   struct timeval t0, t1;
   gettimeofday(&t0, 0);
@@ -186,13 +192,10 @@ void in_mem_process(const char* fname, long long maxevents = -1){
   std::cout << "Duration: " << (1.e6*(t1.tv_sec-t0.tv_sec)
 				+ (t1.tv_usec-t0.tv_usec)) / n_tests / events.size()
 	    << "us\n";
-  
+
   std::cout << "Number of processed events: " << events.size() << "\n";
   std::cout << "Sum of jet multiplicity over the events and processing loops: " <<  njet_acc << "\n";
 
-  std::sort(inclusive_jets.begin(), inclusive_jets.end(),
-	    [](auto a, auto b){ return a.pt() > b.pt(); });
-  
 }
 
 
@@ -204,10 +207,16 @@ int main(int argc, char* argv[]){
     exit(-1);
   }
 
+  int iarg = 1;
+
   long long maxevents = -1;
 
   if(argc > 2) maxevents = strtoul(argv[2], 0, 0);
 
-  //  process_file(argv[1], maxevents);
-  in_mem_process(argv[1], maxevents);
+  bool dump = false;
+  if(argc > 3) dump = true;
+
+  printf("dunp = %d\n", dump);
+  
+  in_mem_process(argv[1], maxevents, dump);
 }
