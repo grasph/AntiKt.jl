@@ -44,25 +44,44 @@ const _MaxRap = 1e5
 # \class PseudoJet
 # Class to contain pseudojets, including minimal information of use to
 # jet-clustering routines.
-struct PseudoJet<:FourMomentum
+mutable struct PseudoJet<:FourMomentum
     # construct a pseudojet from explicit components
     px::Float64
     py::Float64
     pz::Float64
     E::Float64
     _cluster_hist_index::Int
+    _rap::Float64
+    _phi::Float64
     _pt2::Float64
     _inv_pt2::Float64
+    PseudoJet(px, py, pz, E) = begin
+        j = new(px, py, pz, E, 0, NaN, NaN)
+        j._pt2 = px*px +py*py
+        j._inv_pt2 = 1.0 / j._pt2
+        j
+    end
 end
 
-PseudoJet(px, py, pz, E) = begin
-    pt2 = px*px +py*py
-    inv_pt2 = inv(pt2)
-    PseudoJet(px, py, pz, E, 0, pt2, inv_pt2)
+import Base.getproperty
+Base.getproperty(x::PseudoJet, sym::Symbol) = begin
+    if sym === :pt2
+        return x._pt2
+    elseif sym === :pt
+        return sqrt(x._pt2)
+    elseif sym == :rap
+        _ensure_valid_rap_phi(x)
+        return x._rap
+    elseif sym == :phi
+        _ensure_valid_rap_phi(x)
+        return x._phi
+    else
+        return getfield(x, sym)
+    end
 end
 
 
-#=set_momentum(j::PseudoJet, px, py, pz, E) = begin
+set_momentum(j::PseudoJet, px, py, pz, E) = begin
     j.px = px
     j.py = py
     j.pz = pz
@@ -71,48 +90,45 @@ end
     j._inv_pt2 = 1.0/j._pt2
     j._rap = NaN
     j._phi = NaN
-end=#
-
-_fix_phi(phi::Real) = begin
-    if phi < 0.0
-        phi + 2π
-    elseif phi >= 2π
-       phi - 2π  # can happen if phi=-|eps<1e-15|?
-    else
-        phi
-   end
 end
 
-_get_phi(p::PseudoJet) = begin
-    _fix_phi(p._pt2 == 0.0 ? 0.0 : atan(p.py,p.px))
-end
+_ensure_valid_rap_phi(p::PseudoJet) = isnan(p._phi) && _set_rap_phi!(p)
 
-_get_rap(p::PseudoJet) = begin
+_set_rap_phi!(p::PseudoJet) = begin
+
+    p._phi = p._pt2 == 0.0 ? 0.0 : atan(p.py,p.px)
+    if p._phi < 0.0
+         p._phi += 2π
+     elseif p._phi >= 2π
+        p._phi -= 2π  # can happen if phi=-|eps<1e-15|?
+    end
+
     if p.E == abs(p.pz) && iszero(p._pt2)
         # Point has infinite rapidity -- convert that into a very large
         #    number, but in such a way that different 0-pt momenta will have
         #    different rapidities (so as to lift the degeneracy between
         #                         them) [this can be relevant at parton-level]
         MaxRapHere = _MaxRap + abs(p.pz)
-        p.pz >= 0.0 ?  MaxRapHere : -MaxRapHere
+        p._rap = p.pz >= 0.0 ?  MaxRapHere : -MaxRapHere
     else
         # get the rapidity in a way that's modestly insensitive to roundoff
         # error when things pz,E are large (actually the best we can do without
         # explicit knowledge of mass)
         effective_m2 = max(0.0, m2(p)) # force non tachyonic mass
         E_plus_pz    = p.E + abs(p.pz) # the safer of p+, p-
-        rap_tmp = 0.5*log((p._pt2 + effective_m2)/(E_plus_pz*E_plus_pz))
-        p.pz > 0 ? - rap_tmp : rap_tmp
+        p._rap = 0.5*log((p._pt2 + effective_m2)/(E_plus_pz*E_plus_pz))
+        if p.pz > 0 p._rap = - p._rap; end
     end
+    nothing
 end
 
 phi(p::PseudoJet) = phi_02pi(p)
 
-phi_02pi(p::PseudoJet) = _get_phi(p)
+phi_02pi(p::PseudoJet) = p.phi
 
-rap(p::PseudoJet) = _get_rap(p)
+rap(p::PseudoJet) = p.rap
 
-pt2(p::PseudoJet) = p._pt2
+pt2(p::PseudoJet) = p.pt2
 
 eta(p::PseudoJet) = p.rap
 

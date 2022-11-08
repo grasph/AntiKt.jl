@@ -583,8 +583,7 @@ _initial_history(particles) = begin
         history[i] = HistoryElement(i)
 
         # get cross-referencing right from PseudoJets
-        p = particles[i]
-        particles[i] = @set p._cluster_hist_index = i
+        particles[i]._cluster_hist_index = i
 
         # determine the total energy in the event
         Qtot += particles[i].E
@@ -630,8 +629,7 @@ _add_step_to_history!(cs::ClusterSequence, parent1, parent2, jetp_index, dij) = 
     # get cross-referencing right from PseudoJets
     if jetp_index != Invalid
         @assert jetp_index >= 1
-        jet = cs.jets[jetp_index]
-        cs.jets[jetp_index] = @set jet._cluster_hist_index = local_step
+        cs.jets[jetp_index]._cluster_hist_index = local_step
     end
 
     #if (_writeout_combinations) {
@@ -659,8 +657,7 @@ _do_ij_recombination_step!(cs::ClusterSequence, jet_i, jet_j, dij) = begin
     newstep_k = length(cs.history) + 1
 
     # and provide jet with the info
-    jet = cs.jets[newjet_k]
-    cs.jets[newjet_k] = @set jet._cluster_hist_index = newstep_k
+    cs.jets[newjet_k]._cluster_hist_index = newstep_k
 
     # finally sort out the history
     hist_i = cs.jets[jet_i]._cluster_hist_index
