@@ -51,8 +51,6 @@ struct PseudoJet<:FourMomentum
     pz::Float64
     E::Float64
     _cluster_hist_index::Int
-    _rap::Float64
-    _phi::Float64
     _pt2::Float64
     _inv_pt2::Float64
 end
@@ -60,7 +58,7 @@ end
 PseudoJet(px, py, pz, E) = begin
     pt2 = px*px +py*py
     inv_pt2 = inv(pt2)
-    PseudoJet(px, py, pz, E, 0, NaN, NaN, pt2, inv_pt2)
+    PseudoJet(px, py, pz, E, 0, pt2, inv_pt2)
 end
 
 
