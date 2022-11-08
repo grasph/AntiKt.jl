@@ -40,6 +40,9 @@ abstract type FourMomentum end
 # for some partons, giving rapidity=infinity. KtJet fails in those cases.
 const _MaxRap = 1e5
 
+const _invalid_phi = -100.0
+const _invalid_rap = -1.e200
+
 # @ingroup basic_classes
 # \class PseudoJet
 # Class to contain pseudojets, including minimal information of use to
@@ -51,33 +54,26 @@ mutable struct PseudoJet<:FourMomentum
     pz::Float64
     E::Float64
     _cluster_hist_index::Int
-    _rap::Float64
-    _phi::Float64
     _pt2::Float64
     _inv_pt2::Float64
-    PseudoJet(px, py, pz, E) = begin
-        j = new(px, py, pz, E, 0, NaN, NaN)
-        j._pt2 = px*px +py*py
-        j._inv_pt2 = 1.0 / j._pt2
-        j
+    _rap::Float64
+    _phi::Float64
     end
-end
 
-import Base.getproperty
-Base.getproperty(x::PseudoJet, sym::Symbol) = begin
-    if sym === :pt2
-        return x._pt2
-    elseif sym === :pt
-        return sqrt(x._pt2)
-    elseif sym == :rap
-        _ensure_valid_rap_phi(x)
-        return x._rap
-    elseif sym == :phi
-        _ensure_valid_rap_phi(x)
-        return x._phi
-    else
-        return getfield(x, sym)
-    end
+    
+PseudoJet(px::Float64, py::Float64, pz::Float64, E::Float64,
+          _cluster_hist_index::Int,
+          pt2::Float64) = PseudoJet(px,
+                                    py, pz, E, _cluster_hist_index,
+                                    pt2, 1. / pt2, _invalid_rap, _invalid_phi)
+
+PseudoJet(px::Float64, py::Float64,
+          pz::Float64, E::Float64) = PseudoJet(px, py, pz, E, 0, px^2 + py^2)
+
+import Base.show
+show(io::IO, jet::PseudoJet) = begin
+    print(io, "Pseudojet(px: ", jet.px, " py: ", jet.py, " pz: ", jet.pz, " E: ", jet.E, "; ",
+          "pt: ", sqrt(jet._pt2), " eta: ", rap(jet), " phi: ", phi(jet), ", m: ", m(jet), ")")
 end
 
 
@@ -88,11 +84,11 @@ set_momentum(j::PseudoJet, px, py, pz, E) = begin
     j.E = E
     j._pt2 = px^2 + py^2
     j._inv_pt2 = 1.0/j._pt2
-    j._rap = NaN
-    j._phi = NaN
+    j._rap = _invalid_eta
+    j._phi = _invalid_phi
 end
 
-_ensure_valid_rap_phi(p::PseudoJet) = isnan(p._phi) && _set_rap_phi!(p)
+_ensure_valid_rap_phi(p::PseudoJet) = p._phi == _invalid_phi && _set_rap_phi!(p)
 
 _set_rap_phi!(p::PseudoJet) = begin
 
@@ -124,13 +120,17 @@ end
 
 phi(p::PseudoJet) = phi_02pi(p)
 
-phi_02pi(p::PseudoJet) = p.phi
+phi_02pi(p::PseudoJet) = begin
+    _ensure_valid_rap_phi(p)
+    return p._phi
+end
 
-rap(p::PseudoJet) = p.rap
+rap(p::PseudoJet) = begin
+    _ensure_valid_rap_phi(p)
+    return p._rap
+end
 
-pt2(p::PseudoJet) = p.pt2
-
-eta(p::PseudoJet) = p.rap
+pt2(p::PseudoJet) = p._pt2
 
 "Returns the scalar transverse momentum"
 pt(p::PseudoJet) = sqrt(p._pt2)
@@ -141,11 +141,13 @@ m2(p::PseudoJet) = (p.E + p.pz)*(p.E-p.pz) - p._pt2
 # returns the invariant mass
 # (If m2() is negative then -sqrt(-m2()) is returned, as in CLHEP)
 m(p::PseudoJet) = begin
-    _m = sqrt(p.m2())
-    _m < 0. ? -sqrt(-m) : sqrt(m)
+    x = m2(p)
+    x < 0. ? -sqrt(-x) : sqrt(x)
 end
 
-import Base.+
+import Base.+;
 
-+(j1::PseudoJet, j2::PseudoJet) = PseudoJet(j1.px + j2.px, j1.py + j2.py,
++(j1::PseudoJet, j2::PseudoJet) = begin
+    PseudoJet(j1.px + j2.px, j1.py + j2.py,
                                             j1.pz + j2.pz, j1.E + j2.E)
+end

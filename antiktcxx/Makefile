@@ -3,8 +3,9 @@ include ../Makefile.def
 .PHONY: all clean
 
 CXXFLAGS+=-MMD
-CXXFLAGS+=-O2
-#CXXFLAGS+=-g -Og
+CXXFLAGS+=-O2 -ggdb
+CXXFLAGS+=-ggdb #For perf profiler
+#CXXFLAGS+=-ggdb -Og
 
 all: antikt-fastjet antikt
 

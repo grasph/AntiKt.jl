@@ -206,7 +206,7 @@ Tiling(setup::TilingDef) = begin
                fill(noTiledJet, (setup._n_tiles_eta, setup._n_tiles_phi)),
                fill(0, (setup._n_tiles_eta, setup._n_tiles_phi)),
                fill(false, (setup._n_tiles_eta, setup._n_tiles_phi)))
-    for iphi = 1:setup._n_tiles_phi
+    @inbounds for iphi = 1:setup._n_tiles_phi
         #order of the following two statement is important
         #to have position = tile_right in case n_tiles_eta = 1
         t.positions[1, iphi] = tile_left
@@ -307,7 +307,7 @@ _tile_index(tiling_setup, eta::Float64, phi::Float64) = begin
     elseif eta >= tiling_setup._tiles_eta_max
         ieta = tiling_setup._n_tiles_eta
     else
-        ieta = 1 + trunc(Int, (eta - tiling_setup._tiles_eta_min) / tiling_setup._tile_size_eta)
+        ieta = 1 + unsafe_trunc(Int, (eta - tiling_setup._tiles_eta_min) / tiling_setup._tile_size_eta)
         # following needed in case of rare but nasty rounding errors
         if ieta > tiling_setup._n_tiles_eta
             ieta = tiling_setup._n_tiles_eta
@@ -317,8 +317,9 @@ _tile_index(tiling_setup, eta::Float64, phi::Float64) = begin
     # as well
     #iphi = (int(floor(phi/_tile_size_phi)) + _n_tiles_phi) % _n_tiles_phi;
     # with just int and no floor, things run faster but beware
-    iphi = mod(trunc(Int, (phi + 2π) / tiling_setup._tile_size_phi),
-               tiling_setup._n_tiles_phi)
+    #iphi = mod(unsafe_trunc(Int, (phi + 2π) / tiling_setup._tile_size_phi),
+    #           tiling_setup._n_tiles_phi)
+    iphi = min(unsafe_trunc(Int, phi  / tiling_setup._tile_size_phi), tiling_setup._n_tiles_phi)
     return iphi * tiling_setup._n_tiles_eta + ieta
 end
 
@@ -352,8 +353,7 @@ determine_rapidity_extent(particles) = begin
         # Remember the bins go from ibin=1 (rap=-infinity..-19)
         # to ibin = nbins (rap=19..infinity for nrap=20)
         ibin = clamp(1 + unsafe_trunc(Int, y + nrap), 1, nbins)
-        counts[ibin] += 1
-
+        @inbounds counts[ibin] += 1
     end
 
     # now figure out the particle count in the busiest bin
@@ -384,7 +384,7 @@ determine_rapidity_extent(particles) = begin
     cumul2 = 0.0
     ibin_lo = 1
     while ibin_lo <= nbins
-        cumul_lo += counts[ibin_lo]
+        @inbounds cumul_lo += counts[ibin_lo]
         if cumul_lo >= allowed_max_cumul
             minrap = max(minrap, ibin_lo - nrap - 1)
             break
@@ -398,7 +398,7 @@ determine_rapidity_extent(particles) = begin
     cumul_hi = 0.0
     ibin_hi = nbins
     while ibin_hi >= 1
-        cumul_hi += counts[ibin_hi]
+        @inbounds cumul_hi += counts[ibin_hi]
         if cumul_hi >= allowed_max_cumul
             maxrap = min(maxrap, ibin_hi - nrap)
             break
@@ -418,7 +418,7 @@ determine_rapidity_extent(particles) = begin
         # of that bin, which we obtain from cumul_lo and cumul_hi minus
         # the double counting of part that is contained in both
         # (putting double)
-        cumul2 = (cumul_lo + cumul_hi - counts[ibin_hi]) ^ 2
+        @inbounds cumul2 = (cumul_lo + cumul_hi - counts[ibin_hi]) ^ 2
     else
         # otherwise we have a straightforward sum of squares of bin
         # contents
@@ -427,7 +427,7 @@ determine_rapidity_extent(particles) = begin
 
     # now get the rest of the squared bin contents
     for ibin in (ibin_lo + 1):ibin_hi
-        cumul2 += counts[ibin]^2
+        @inbounds cumul2 += counts[ibin]^2
     end
 
     minrap, maxrap
@@ -507,9 +507,9 @@ end
 #----------------------------------------------------------------------
 # Set up a TiledJet
 _tj_set_jetinfo!(jet::TiledJet, cs::ClusterSequence, jets_index, R2) = begin
-    jet.eta  = rap(cs.jets[jets_index])
-    jet.phi  = phi_02pi(cs.jets[jets_index])
-    jet.kt2  = pt2(cs.jets[jets_index]) > 1.e-300 ? 1. / pt2(cs.jets[jets_index]) : 1.e300
+    @inbounds jet.eta  = rap(cs.jets[jets_index])
+    @inbounds jet.phi  = phi_02pi(cs.jets[jets_index])
+    @inbounds jet.kt2  = pt2(cs.jets[jets_index]) > 1.e-300 ? 1. / pt2(cs.jets[jets_index]) : 1.e300
     jet.jets_index = jets_index
     # initialise NN info as well
     jet.NN_dist = R2
@@ -520,9 +520,9 @@ _tj_set_jetinfo!(jet::TiledJet, cs::ClusterSequence, jets_index, R2) = begin
 
     # Insert it into the tile's linked list of jets
     jet.previous = noTiledJet
-    jet.next = cs.tiling.tiles[jet.tile_index]
+    @inbounds jet.next = cs.tiling.tiles[jet.tile_index]
     if isvalid(jet.next) jet.next.previous = jet; end
-    cs.tiling.tiles[jet.tile_index] = jet
+    @inbounds cs.tiling.tiles[jet.tile_index] = jet
     nothing
 end
 
@@ -556,9 +556,6 @@ function _add_untagged_neighbours_to_tile_union(center_index,
     for tile_index in surrounding(center_index, tiling)
         @inbounds if !tiling.tags[tile_index]
             n_near_tiles += 1
-            if(tile_index > tiling.setup._n_tiles)
-                println(center_index)
-            end
             tile_union[n_near_tiles] = tile_index
             tiling.tags[tile_index] = true
         else
@@ -689,7 +686,7 @@ inclusive_jets(cs::ClusterSequence, ptmin = 0.) = begin
         elt.parent2 == BeamJet || continue
         iparent_jet = cs.history[elt.parent1].jetp_index
         jet = cs.jets[iparent_jet]
-        if jet._pt2 >= dcut
+        if pt2(jet) >= dcut
             push!(jets_local, jet)
         end
     end
@@ -701,6 +698,19 @@ struct _DiJ_plus_link
     diJ::Float64  # the distance
     jet::TiledJet # the jet (i) for which we've found this distance
 end
+
+find_best(diJ, n) = begin
+    best = 1
+    @inbounds diJ_min = diJ[1]
+    for here in 2:n
+        @inbounds if diJ[here] < diJ_min
+            best = here
+            diJ_min  = diJ[here]
+        end
+    end
+    diJ_min, best
+end
+
 
 #----------------------------------------------------------------------
 #/ run a tiled clustering
@@ -762,7 +772,7 @@ _faster_tiled_N2_cluster(particles, Rparam, ptmin = 0.0) = begin
         # look for neighbour jets n the neighbour tiles
         for rtile_index in rightneighbours(tile.tile_index, tiling)
             for jetA in tile
-                for jetB in tiling.tiles[rtile_index]
+                for jetB in @inbounds tiling.tiles[rtile_index]
                     dist = _tj_dist(jetA, jetB)
                     if (dist < jetA.NN_dist)
                         jetA.NN_dist = dist
@@ -788,7 +798,7 @@ _faster_tiled_N2_cluster(particles, Rparam, ptmin = 0.0) = begin
     for i in eachindex(diJ)
         jetA = tiledjets[i]
         diJ[i] = _tj_diJ(jetA) # kt distance * R^2
-        NNs[i] = jetA        # our compact diJ table will not be in
+        @inbounds NNs[i] = jetA        # our compact diJ table will not be in
         jetA.diJ_posn = i    # one-to-one corresp. with non-compact jets,
         # so set up bi-directional correspondence here.
     end
@@ -799,18 +809,10 @@ _faster_tiled_N2_cluster(particles, Rparam, ptmin = 0.0) = begin
     n = length(cs.jets)
     while n > 1 #0 in C++ implementation, but the last iteration seems superfluous
         # find the minimum of the diJ on this round
-        best = 1
-        @inbounds diJ_min = diJ[1] # initialize the best one here.
-        for here in 2:n
-            @inbounds if diJ[here] < diJ_min
-                best = here
-                diJ_min  = diJ[here]
-            end
-        end
-
+        diJ_min, best = find_best(diJ, n)
         # do the recombination between A and B
         history_location += 1
-        jetA = NNs[best]
+        @inbounds jetA = NNs[best]
         jetB = jetA.NN
 
         # put the normalisation back in
@@ -863,9 +865,9 @@ _faster_tiled_N2_cluster(particles, Rparam, ptmin = 0.0) = begin
 
         # first compactify the diJ by taking the last of the diJ and copying
         # it to the position occupied by the diJ for jetA
-        NNs[n].diJ_posn = jetA.diJ_posn
-        diJ[jetA.diJ_posn] = diJ[n]
-        NNs[jetA.diJ_posn] = NNs[n]
+        @inbounds NNs[n].diJ_posn = jetA.diJ_posn
+        @inbounds diJ[jetA.diJ_posn] = diJ[n]
+        @inbounds NNs[jetA.diJ_posn] = NNs[n]
 
         # then reduce size of table
         n -= 1
@@ -874,8 +876,8 @@ _faster_tiled_N2_cluster(particles, Rparam, ptmin = 0.0) = begin
         # other particles.
         # Run over all tiles in our union
         for itile in 1:n_near_tiles
-            tile = tiling.tiles[tile_union[itile]]
-            tiling.tags[tile_union[itile]] = false # reset tag, since we're done with unions
+            @inbounds tile = tiling.tiles[ @inbounds tile_union[itile]] #TAKES 5μs
+            @inbounds tiling.tags[tile_union[itile]] = false # reset tag, since we're done with unions
 
             isvalid(tile) || continue #Probably not required
 
@@ -889,7 +891,7 @@ _faster_tiled_N2_cluster(particles, Rparam, ptmin = 0.0) = begin
                     # now go over tiles that are neighbours of I (include own tile)
                     for near_tile_index in surrounding(tile.tile_index, tiling)
                         # and then over the contents of that tile
-                        for jetJ in tiling.tiles[near_tile_index]
+                        for jetJ in @inbounds tiling.tiles[near_tile_index]
                             dist = _tj_dist(jetI, jetJ)
                             if dist < jetI.NN_dist && jetJ != jetI
                                 jetI.NN_dist = dist
@@ -923,7 +925,7 @@ _faster_tiled_N2_cluster(particles, Rparam, ptmin = 0.0) = begin
 
         # finally, register the updated kt distance for B
         if isvalid(jetB)
-            diJ[jetB.diJ_posn] = _tj_diJ(jetB)
+            @inbounds diJ[jetB.diJ_posn] = _tj_diJ(jetB)
         end
     end #next n
     inclusive_jets(cs, ptmin)
