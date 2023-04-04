@@ -49,4 +49,5 @@ cat <<EOF
 EOF
 
 echo "Run $ntests times the Julia version of the code."
-./run_antikt_jl -m "$ntests" events.hepmc3 
+julia --project=. -e "using Pkg; Pkg.instantiate()"
+julia --project=. ./run_antikt_jl -m "$ntests" events.hepmc3 
