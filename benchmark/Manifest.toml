@@ -28,7 +28,7 @@ version = "0.1.28"
     StructArrays = "09ab397b-f2b6-538f-b94a-2f83cf4a842a"
 
 [[deps.AntiKt]]
-deps = ["Accessors", "HepMC3"]
+deps = ["Accessors"]
 path = ".."
 uuid = "b1d79ec0-5126-4cc0-8710-7ce7530fd203"
 version = "0.1.0"
