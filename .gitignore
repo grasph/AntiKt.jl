@@ -1,2 +1,7 @@
 externals
 playground
+benchmark/statprof
+.vscode
+data/events.hepmc3
+
+**/Manifest.toml

@@ -10,6 +10,7 @@ import FlameGraphs
 using Colors
 using StatProfilerHTML
 import ProfileSVG
+using LoopVectorization
 const R = 0.4
 const ptmin = 5.0
 

@@ -29,6 +29,7 @@
 module AntiKt
 
 using Accessors
+using LoopVectorization
 
 export PseudoJet, antikt
 
