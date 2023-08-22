@@ -525,8 +525,11 @@ _tj_set_jetinfo!(jet::TiledJet, cs::ClusterSequence, jets_index, R2) = begin
     nothing
 end
 
-
-Base.iterate(tj::TiledJet) = (tj, tj)
+# Iterator over a TiledJet walks along the chain of linked jets
+# until we reach a "noTiledJet" that signals the end of the list
+Base.iterate(tj::TiledJet) = begin
+    isvalid(tj) ? (tj, tj) : nothing
+end
 Base.iterate(tj::TiledJet, state::TiledJet) = begin
     isvalid(state.next) ? (state.next::TiledJet, state.next::TiledJet) : nothing
 end
@@ -926,5 +929,6 @@ _faster_tiled_N2_cluster(particles, Rparam, ptmin = 0.0) = begin
             @inbounds diJ[jetB.diJ_posn] = _tj_diJ(jetB)
         end
     end #next n
+
     inclusive_jets(cs, ptmin)
 end

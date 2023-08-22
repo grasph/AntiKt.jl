@@ -81,7 +81,7 @@ time_code(events, niters; gcoff=false, allocation=false) = begin
     mean /= length(events)
     sigma /= length(events)
     err = niters > 1 ? err = " ± " * string(sigma) : ""
-    println("Duration: ", mean, err, " us/event")
+    println("Duration: ", mean, err, " μs/event")
     println("Number of processed events:", length(events))
     if allocation
         println("Memory allocation:")
