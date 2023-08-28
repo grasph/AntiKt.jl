@@ -29,7 +29,6 @@
 #  You should have received a copy of the GNU General Public License
 #  along with FastJet. If not, see <http:#www.gnu.org/licenses/>.
 #----------------------------------------------------------------------
-
 const Invalid=-3
 const InexistentParent=-2
 const BeamJet=-1
@@ -460,9 +459,9 @@ end
 #/
 #/ The neighbourhood of a tile is set up as follows
 #/
-#/	     LRR
-#/           LXR
-#/           LLR
+#/	        LRR
+#/          LXR
+#/          LLR
 #/
 #/ such that tiles is an array containing XLLLLRRRR with pointers
 #/                                         |   \ RH_tiles
@@ -526,8 +525,11 @@ _tj_set_jetinfo!(jet::TiledJet, cs::ClusterSequence, jets_index, R2) = begin
     nothing
 end
 
-
-Base.iterate(tj::TiledJet) = (tj, tj)
+# Iterator over a TiledJet walks along the chain of linked jets
+# until we reach a "noTiledJet" that signals the end of the list
+Base.iterate(tj::TiledJet) = begin
+    isvalid(tj) ? (tj, tj) : nothing
+end
 Base.iterate(tj::TiledJet, state::TiledJet) = begin
     isvalid(state.next) ? (state.next::TiledJet, state.next::TiledJet) : nothing
 end
@@ -702,11 +704,10 @@ end
 find_best(diJ, n) = begin
     best = 1
     @inbounds diJ_min = diJ[1]
-    for here in 2:n
-        @inbounds if diJ[here] < diJ_min
-            best = here
-            diJ_min  = diJ[here]
-        end
+    @turbo for here in 2:n
+        newmin = diJ[here] < diJ_min
+        best = newmin ? here : best
+        diJ_min = newmin ? diJ[here] : diJ_min
     end
     diJ_min, best
 end
@@ -766,7 +767,7 @@ _faster_tiled_N2_cluster(particles, Rparam, ptmin = 0.0) = begin
                     jetB.NN_dist = dist
                     jetB.NN = jetA
                 end
-            end #next jetA
+            end #next jetB
         end #next jetA
 
         # look for neighbour jets n the neighbour tiles
@@ -928,5 +929,6 @@ _faster_tiled_N2_cluster(particles, Rparam, ptmin = 0.0) = begin
             @inbounds diJ[jetB.diJ_posn] = _tj_diJ(jetB)
         end
     end #next n
+
     inclusive_jets(cs, ptmin)
 end
